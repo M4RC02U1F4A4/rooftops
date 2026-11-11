@@ -24,7 +24,7 @@ One Swift file, no dependencies, no Xcode project.
   - snow is kept for windows on another Space or minimized, and comes back with them.
 - **Ground drifts** at the bottom of the screen, which pile up against the screen edges. They are kept under
   half the height of the Dock: when they get close, a snowplow sets off on its own, and if snow piles up
-  again behind it (say, in a blizzard) another convoy follows.
+  again behind it (say, in a blizzard) another convoy follows. This can be switched off from the menu.
 - **Gravity from the laptop's tilt** (Apple Silicon MacBooks): flakes fall at an angle, settled snow slides
   downhill, and once the slope beats friction a whole roof of snow slides off as a slab and is thrown off
   the edge.
@@ -65,7 +65,8 @@ The menu is in Italian:
 |------------------------|----------------------------------------------------------------------|
 | *Nevicata* slider      | Snowfall intensity; all the way left stops it                        |
 | Tormenta di neve (⌘T)  | Starts a 15 s blizzard with random gusts                             |
-| Chiama lo spazzaneve (⌘P) | Sends the snowplow convoy now (it also comes on its own)          |
+| Chiama lo spazzaneve (⌘P) | Sends the snowplow convoy now                                    |
+| Spazzaneve automatico  | Snowplows set off on their own to keep the ground snow low (remembered, on by default) |
 | Tutti gli schermi      | Snow on every display instead of the main one only (remembered)      |
 | Inverti inclinazione   | Flips the tilt direction if the snow slides the wrong way            |
 | Esci (⌘Q)              | Quits and switches the accelerometer back off                        |

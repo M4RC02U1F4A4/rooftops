@@ -136,6 +136,7 @@ struct Flake {
 final class SnowView: NSView {
     var intensity: CGFloat = 0.4          // 0...1, set from the menu
     var invertTilt = false
+    var autoPlow = true                   // send snowplows on their own when the ground snow gets high
     let tilt: Tilt?        // nil on external monitors: they don't tilt with the laptop
     let origin: CGPoint    // this screen's top-left in global CG coordinates
 
@@ -301,7 +302,7 @@ final class SnowView: NSView {
             let dock = (window?.screen).map { $0.visibleFrame.minY - $0.frame.minY } ?? 0
             let limit = (dock > 20 ? dock : 70) / 2  // hidden, side or no Dock: assume a standard 70 pt one
             let passed = min(ground.h.count, max(0, plows.map { Int(($0.x + Self.plowLen) / colW) }.min() ?? ground.h.count))
-            if (ground.h[..<passed].max() ?? 0) > limit * 0.8 { callPlow() }
+            if autoPlow && (ground.h[..<passed].max() ?? 0) > limit * 0.8 { callPlow() }
         }
 
         var g = tilt.map { invertTilt ? -$0.x : $0.x } ?? 0  // sin of the real sideways tilt, no amplification
@@ -718,6 +719,7 @@ final class App: NSObject, NSApplicationDelegate {
     var timer: Timer?
     var intensity: CGFloat = 0.4, invertTilt = false
     var allScreens = UserDefaults.standard.bool(forKey: "allScreens")
+    var autoPlow = UserDefaults.standard.object(forKey: "autoPlow") as? Bool ?? true
 
     /// One transparent click-through overlay per screen (or just the menu-bar one). Screens that keep the
     /// same frame keep their overlay and its snow; only added, moved or resized screens start fresh.
@@ -737,6 +739,7 @@ final class App: NSObject, NSApplicationDelegate {
                              tilt: CGDisplayIsBuiltin(id) != 0 ? tilt : nil)
             v.intensity = intensity
             v.invertTilt = invertTilt
+            v.autoPlow = autoPlow
             w.contentView = v
             w.setFrame(screen.frame, display: false)
             w.orderFrontRegardless()
@@ -762,6 +765,9 @@ final class App: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Tormenta di neve", action: #selector(blizzard), keyEquivalent: "t").target = self
         menu.addItem(withTitle: "Chiama lo spazzaneve", action: #selector(plow), keyEquivalent: "p").target = self
+        let auto = menu.addItem(withTitle: "Spazzaneve automatico", action: #selector(toggleAutoPlow(_:)), keyEquivalent: "")
+        auto.target = self
+        auto.state = autoPlow ? .on : .off
         let screens = menu.addItem(withTitle: "Tutti gli schermi", action: #selector(toggleScreens(_:)), keyEquivalent: "")
         screens.target = self
         screens.state = allScreens ? .on : .off
@@ -791,6 +797,11 @@ final class App: NSObject, NSApplicationDelegate {
     @objc func invert(_ m: NSMenuItem) {
         invertTilt.toggle(); m.state = invertTilt ? .on : .off
         overlays.forEach { $0.view.invertTilt = invertTilt }
+    }
+    @objc func toggleAutoPlow(_ m: NSMenuItem) {
+        autoPlow.toggle(); m.state = autoPlow ? .on : .off
+        UserDefaults.standard.set(autoPlow, forKey: "autoPlow")
+        overlays.forEach { $0.view.autoPlow = autoPlow }
     }
     @objc func toggleScreens(_ m: NSMenuItem) {
         allScreens.toggle(); m.state = allScreens ? .on : .off
