@@ -297,12 +297,15 @@ final class SnowView: NSView {
         frameCount += 1
         if frameCount % 3 == 0 {
             refreshWindows()
-            // a snowplow sets off by itself once the ground snow is 30% over half the Dock, and if snow piles
-            // up that high again where the trucks already passed, another convoy follows them
+            // a snowplow sets off by itself once a quarter of the screen width has snow above half the Dock
+            // (one lone drift isn't enough); if that much builds up again where the trucks already passed,
+            // another convoy follows them
             let dock = (window?.screen).map { $0.visibleFrame.minY - $0.frame.minY } ?? 0
             let limit = (dock > 20 ? dock : 70) / 2  // hidden, side or no Dock: assume a standard 70 pt one
             let passed = min(ground.h.count, max(0, plows.map { Int(($0.x + Self.plowLen) / colW) }.min() ?? ground.h.count))
-            if autoPlow && (ground.h[..<passed].max() ?? 0) > limit * 1.3 { callPlow() }
+            let deep = ground.h[..<passed].lazy.filter { $0 > limit }.count
+            // ponytail: 25% of the width; lower it to plow sooner, raise it to let more snow build up
+            if autoPlow && deep * 4 >= ground.h.count { callPlow() }
         }
 
         var g = tilt.map { invertTilt ? -$0.x : $0.x } ?? 0  // sin of the real sideways tilt, no amplification

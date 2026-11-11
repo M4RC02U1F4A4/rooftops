@@ -22,9 +22,9 @@ One Swift file, no dependencies, no Xcode project.
   - move or resize a window and its snow falls off (and lands back on it if you only nudged it); close it
     and the snow drops to the ground;
   - snow is kept for windows on another Space or minimized, and comes back with them.
-- **Ground drifts** at the bottom of the screen, which pile up against the screen edges. Once they're 30%
-  higher than half the Dock, a snowplow sets off on its own, and if snow piles up that high again behind
-  it (say, in a blizzard) another convoy follows. This can be switched off from the menu.
+- **Ground drifts** at the bottom of the screen, which pile up against the screen edges. Once a quarter of
+  the screen width has snow higher than half the Dock (a single drift isn't enough), a snowplow sets off on
+  its own, and if that much builds up again behind it (say, in a blizzard) another convoy follows. This can be switched off from the menu.
 - **Gravity from the laptop's tilt** (Apple Silicon MacBooks): flakes fall at an angle, settled snow slides
   downhill, and once the slope beats friction a whole roof of snow slides off as a slab and is thrown off
   the edge.
