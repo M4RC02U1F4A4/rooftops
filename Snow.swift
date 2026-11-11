@@ -480,7 +480,15 @@ final class SnowView: NSView {
         }
         ctx.saveGState()
         clipOut(ctx, order[...])
-        drawDrift(ctx, groundWithHeaps(), x0: 0, base: bounds.maxY)
+        let (gh, heaps) = groundWithHeaps()
+        let groundPeak = gh.max() ?? 0
+        drawDrift(ctx, gh, x0: 0, base: bounds.maxY, peak: groundPeak)
+        ctx.restoreGState()
+        // snowplows and the heaps they push drive in front of everything, windows included
+        // (same gradient span as the ground, so a heap blends into the snow it rests on)
+        for h in heaps where !h.isEmpty {
+            drawDrift(ctx, Array(gh[h]), x0: CGFloat(h.lowerBound) * colW, base: bounds.maxY, peak: groundPeak)
+        }
         for p in plows {
             ctx.saveGState()
             // pivot on the rear wheels' contact point and tilt to where the front wheels touch
@@ -490,7 +498,6 @@ final class SnowView: NSView {
             drawPlow(ctx, spin: p.x / 11)
             ctx.restoreGState()
         }
-        ctx.restoreGState()
 
         // flakes: grey copy 1pt lower = cheap outline on white windows (a blurred shadow costs ~50% CPU);
         // small flakes are dimmer, so they read as farther away
@@ -541,7 +548,8 @@ final class SnowView: NSView {
         for w in windows { ctx.addRect(bounds); ctx.addRect(w); ctx.clip(using: .evenOdd) }
     }
 
-    private func drawDrift(_ ctx: CGContext, _ h: [CGFloat], x0: CGFloat, base: CGFloat) {
+    /// `peak` fixes the gradient's span, so separately drawn pieces of the same snow match.
+    private func drawDrift(_ ctx: CGContext, _ h: [CGFloat], x0: CGFloat, base: CGFloat, peak fixed: CGFloat? = nil) {
         let n = h.count
         var s = h  // smoothed copy for drawing only; the simulation keeps the raw heights
         for _ in 0..<5 { s = (0..<n).map { i in (s[max(0, i - 1)] + 2 * s[i] + s[min(n - 1, i + 1)]) / 4 } }
@@ -560,6 +568,7 @@ final class SnowView: NSView {
             body.closeSubpath()
         }
         guard peak > 0 else { return }
+        if let fixed { peak = max(peak, fixed) }
         ctx.saveGState()
         ctx.addPath(body); ctx.clip()
         ctx.drawLinearGradient(Self.driftGradient, start: CGPoint(x: 0, y: base - peak), end: CGPoint(x: 0, y: base), options: [])
@@ -571,13 +580,15 @@ final class SnowView: NSView {
 
     /// Ground heights with each plow's pushed heap merged in: blade-high and rounded at the face, then
     /// slumping forward at the angle of repose onto whatever lies ahead, so it reads as a mound, not a wall.
-    private func groundWithHeaps() -> [CGFloat] {
+    /// Also returns the column ranges each heap covers.
+    private func groundWithHeaps() -> ([CGFloat], [Range<Int>]) {
         var gh = ground.h
+        var heaps: [Range<Int>] = []
         for p in plows where p.load > 1 {
             let n = Int(max(15, p.load * 4 / (.pi * Self.bladeH)))   // columns; area of a quarter-ellipse = π/4·H·len
             let H = min(Self.bladeH, p.load * 4 / (.pi * CGFloat(n)))
             let tip = Int((p.x + Self.plowLen - 4) / colW)
-            var top = -CGFloat.infinity
+            var top = -CGFloat.infinity, last = tip
             for k in 0... {
                 let c = tip + k
                 guard c < gh.count else { break }
@@ -589,9 +600,12 @@ final class SnowView: NSView {
                 let below = c >= 0 ? gh[c] : 0
                 if k >= n && top <= below { break }  // the slope has reached the snow ahead
                 if c >= 0 { gh[c] = max(below, top) }
+                last = c
             }
+            let lo = max(0, tip), hi = min(gh.count, last + 1)
+            if lo < hi { heaps.append(lo..<hi) }
         }
-        return gh
+        return (gh, heaps)
     }
 
     /// Side view of a municipal snowplow facing right, origin = truck rear on the road.

@@ -103,4 +103,4 @@ The values that define the feel of the snow are marked in the source with `ponyt
 - A maximized window acts as a roof for the whole screen, so almost no snow is visible behind it.
 - Snow is drawn on the CPU: around 10–15% of a core with normal snowfall on one screen, more during a
   blizzard or with several displays.
-- The snowplows and the ground drifts are drawn above the Dock.
+- The snowplows (and the heaps they push) drive in front of every window; the ground drifts are drawn above the Dock.
