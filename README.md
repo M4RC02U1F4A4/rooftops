@@ -1,5 +1,7 @@
 # Snow
 
+![Snow on a desktop: snow-covered windows and a snowplow convoy clearing the bottom of the screen](docs/screenshot.png)
+
 A tiny macOS menu-bar app that makes it snow on your desktop. Windows behave like houses: snow piles up
 on their title bars, sticks to their walls, slides off when you move them, and drifts up at the bottom
 of the screen. Tilt your MacBook and the snow follows gravity. When it gets too deep, call the snowplows.
