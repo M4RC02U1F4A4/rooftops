@@ -23,16 +23,18 @@ One Swift file, no dependencies, no Xcode project.
     and the snow drops to the ground;
   - snow is kept for windows on another Space or minimized, and comes back with them.
 - **Ground drifts** at the bottom of the screen, which pile up against the screen edges. Once a quarter of
-  the screen width has snow higher than half the Dock (a single drift isn't enough), a snowplow sets off on
-  its own, and if that much builds up again behind it (say, in a blizzard) another convoy follows. This can be switched off from the menu.
+  the screen width has snow higher than half the Dock (a single drift isn't enough), a single snowplow sets
+  off on its own and lowers all of it to a quarter of the Dock in one pass; if that much builds up again
+  behind it (say, in a blizzard) another truck follows. This can be switched off from the menu.
 - **Gravity from the laptop's tilt** (Apple Silicon MacBooks): flakes fall at an angle, settled snow slides
   downhill, and once the slope beats friction a whole roof of snow slides off as a slab and is thrown off
   the edge.
 - **Blizzard**: 15 seconds of heavy snow with random gusts. Windows shelter the air behind them, and wind
   blows snow in from the side of the screen it comes from.
-- **Snowplows** (automatic, or on demand from the menu): a convoy of trucks (one per ~32 pt layer of snow, up to 10) drives across the bottom of the
-  screen. Each one scrapes one layer, rides on the packed snow it leaves, tilts on slopes, and pushes a heap
-  that slumps forward like real snow; what doesn't fit is thrown over the blade.
+- **Snowplows**: the automatic one is a single truck that lowers the snow (see above). Calling it from the
+  menu sends a convoy that clears the road: one truck per ~32 pt layer of snow, up to 10, each scraping one
+  layer and riding on the packed snow it leaves. Trucks tilt on slopes and push a heap that rests on the snow
+  ahead like real snow; what doesn't fit is thrown over the blade.
 - **Multiple displays**: snow on the main screen only, or on all screens. External monitors don't tilt.
 
 ## Requirements

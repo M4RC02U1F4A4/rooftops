@@ -157,6 +157,8 @@ final class SnowView: NSView {
         var rear: CGFloat = 0        // ... and under the rear wheels; the difference tilts the truck
         var load: CGFloat = 0        // snow being pushed in front of the blade
         var scrapes = false          // last truck of its convoy: scrapes down to the road
+        var bite = SnowView.bite     // deepest layer the blade takes off in one pass
+        var floor: CGFloat = 0       // snow it leaves on the road
     }
     private var plows: [Plow] = []   // convoy, leader first
     private var storm: CGFloat = 0           // seconds of blizzard left
@@ -184,6 +186,13 @@ final class SnowView: NSView {
         guard plows.allSatisfy({ $0.x > 200 }) else { return }
         let n = min(10, max(1, Int(((ground.h.max() ?? 0) / Self.bite).rounded(.up))))
         plows += (0..<n).map { Plow(x: -Self.plowLen - 60 - CGFloat($0) * (Self.plowLen + 180), scrapes: $0 == n - 1) }
+    }
+
+    /// The automatic plow: one truck that takes everything above `floor` off in a single pass,
+    /// lowering the snow rather than clearing the road.
+    private func sendAutoPlow(leaving floor: CGFloat) {
+        guard plows.allSatisfy({ $0.x > 200 }) else { return }
+        plows.append(Plow(x: -Self.plowLen - 60, bite: .infinity, floor: floor))
     }
     static let plowLen: CGFloat = 152  // truck rear to blade tip
     static let bladeH: CGFloat = 40
@@ -297,15 +306,15 @@ final class SnowView: NSView {
         frameCount += 1
         if frameCount % 3 == 0 {
             refreshWindows()
-            // a snowplow sets off by itself once a quarter of the screen width has snow above half the Dock
-            // (one lone drift isn't enough); if that much builds up again where the trucks already passed,
-            // another convoy follows them
+            // one snowplow sets off by itself once a quarter of the screen width has snow above half the Dock
+            // (one lone drift isn't enough) and lowers it all to half that level in a single pass; if that
+            // much builds up again where it already passed, another truck follows
             let dock = (window?.screen).map { $0.visibleFrame.minY - $0.frame.minY } ?? 0
             let limit = (dock > 20 ? dock : 70) / 2  // hidden, side or no Dock: assume a standard 70 pt one
             let passed = min(ground.h.count, max(0, plows.map { Int(($0.x + Self.plowLen) / colW) }.min() ?? ground.h.count))
             let deep = ground.h[..<passed].lazy.filter { $0 > limit }.count
             // ponytail: 25% of the width; lower it to plow sooner, raise it to let more snow build up
-            if autoPlow && deep * 4 >= ground.h.count { callPlow() }
+            if autoPlow && deep * 4 >= ground.h.count { sendAutoPlow(leaving: limit / 2) }
         }
 
         var g = tilt.map { invertTilt ? -$0.x : $0.x } ?? 0  // sin of the real sideways tilt, no amplification
@@ -447,7 +456,7 @@ final class SnowView: NSView {
             let from = Int((x + Self.plowLen - 2) / colW), to = Int((nx + Self.plowLen - 2) / colW)
             if from < to {
                 for c in (from + 1)...to where ground.h.indices.contains(c) {
-                    let cut = min(ground.h[c], Self.bite)
+                    let cut = min(max(0, ground.h[c] - plows[i].floor), plows[i].bite)
                     ground.h[c] -= cut
                     plows[i].load += cut
                 }
