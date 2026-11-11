@@ -578,8 +578,8 @@ final class SnowView: NSView {
         ctx.addPath(edge); ctx.strokePath()
     }
 
-    /// Ground heights with each plow's pushed heap merged in: blade-high and rounded at the face, then
-    /// slumping forward at the angle of repose onto whatever lies ahead, so it reads as a mound, not a wall.
+    /// Ground heights with each plow's pushed heap merged in: a rounded mound, blade-high at the face,
+    /// sitting on whatever lies ahead.
     /// Also returns the column ranges each heap covers.
     private func groundWithHeaps() -> ([CGFloat], [Range<Int>]) {
         var gh = ground.h
@@ -588,18 +588,18 @@ final class SnowView: NSView {
             let n = Int(max(15, p.load * 4 / (.pi * Self.bladeH)))   // columns; area of a quarter-ellipse = π/4·H·len
             let H = min(Self.bladeH, p.load * 4 / (.pi * CGFloat(n)))
             let tip = Int((p.x + Self.plowLen - 4) / colW)
-            var top = -CGFloat.infinity, last = tip
-            for k in 0... {
+            var last = tip
+            let blade = p.ride + (p.ride - p.rear) * 40 / 88  // where the blade edge is on a slope
+            for k in 0..<n {
                 let c = tip + k
                 guard c < gh.count else { break }
+                guard c >= 0 else { continue }
                 let t = CGFloat(k) / CGFloat(n)
                 let lump = sin(CGFloat(c) * 0.7) * 1.2 + sin(CGFloat(c) * 2.3) * 0.8
-                let base = p.ride + (p.ride - p.rear) * 40 / 88  // where the blade edge is on a slope
-                let raw = k < n ? base + H * (1 - t * t).squareRoot() + lump : -.infinity
-                top = max(raw, top - 1.6)  // never steeper than the angle of repose
-                let below = c >= 0 ? gh[c] : 0
-                if k >= n && top <= below { break }  // the slope has reached the snow ahead
-                if c >= 0 { gh[c] = max(below, top) }
+                // the heap rests on what's ahead: wedged at blade height against a higher bank, or
+                // tumbling onto lower ground when the road drops away (never a made-up slope down to it)
+                let below = gh[c]
+                gh[c] = max(below, min(blade, below) + H * (1 - t * t).squareRoot() + lump)
                 last = c
             }
             let lo = max(0, tip), hi = min(gh.count, last + 1)
