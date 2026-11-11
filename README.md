@@ -22,13 +22,15 @@ One Swift file, no dependencies, no Xcode project.
   - move or resize a window and its snow falls off (and lands back on it if you only nudged it); close it
     and the snow drops to the ground;
   - snow is kept for windows on another Space or minimized, and comes back with them.
-- **Ground drifts** at the bottom of the screen, which pile up against the screen edges.
+- **Ground drifts** at the bottom of the screen, which pile up against the screen edges. They are kept under
+  half the height of the Dock: when they get close, a snowplow sets off on its own, and if snow piles up
+  again behind it (say, in a blizzard) another convoy follows.
 - **Gravity from the laptop's tilt** (Apple Silicon MacBooks): flakes fall at an angle, settled snow slides
   downhill, and once the slope beats friction a whole roof of snow slides off as a slab and is thrown off
   the edge.
 - **Blizzard**: 15 seconds of heavy snow with random gusts. Windows shelter the air behind them, and wind
   blows snow in from the side of the screen it comes from.
-- **Snowplows**: a convoy of trucks (one per ~32 pt layer of snow, up to 10) drives across the bottom of the
+- **Snowplows** (automatic, or on demand from the menu): a convoy of trucks (one per ~32 pt layer of snow, up to 10) drives across the bottom of the
   screen. Each one scrapes one layer, rides on the packed snow it leaves, tilts on slopes, and pushes a heap
   that slumps forward like real snow; what doesn't fit is thrown over the blade.
 - **Multiple displays**: snow on the main screen only, or on all screens. External monitors don't tilt.
@@ -63,7 +65,7 @@ The menu is in Italian:
 |------------------------|----------------------------------------------------------------------|
 | *Nevicata* slider      | Snowfall intensity; all the way left stops it                        |
 | Tormenta di neve (⌘T)  | Starts a 15 s blizzard with random gusts                             |
-| Chiama lo spazzaneve (⌘P) | Sends the snowplow convoy                                         |
+| Chiama lo spazzaneve (⌘P) | Sends the snowplow convoy now (it also comes on its own)          |
 | Tutti gli schermi      | Snow on every display instead of the main one only (remembered)      |
 | Inverti inclinazione   | Flips the tilt direction if the snow slides the wrong way            |
 | Esci (⌘Q)              | Quits and switches the accelerometer back off                        |
