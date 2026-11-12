@@ -96,9 +96,11 @@ The menu is in Italian:
 
 ## How it works
 
-- **Overlay**: one transparent, click-through, borderless window per screen, just above the Dock, on all
-  Spaces. Everything is drawn with Core Graphics at 30 fps.
-- **Windows**: the app polls `CGWindowListCopyWindowInfo` about 10 times a second for the bounds of
+- **Overlays**: per screen, a transparent, click-through, borderless window at desktop level, on all Spaces:
+  above the wallpaper and the desktop icons, under every app window and the Dock. The windows themselves cover
+  whatever is behind them, and Mission Control treats it as part of the desktop. A second window above
+  everything appears only while snowplows are out. Everything is drawn with Core Graphics at 30 fps.
+- **Windows**: the app polls `CGWindowListCopyWindowInfo` every frame for the bounds of
   on-screen windows. It only reads their position and size, so no Screen Recording permission is needed.
 - **Settled snow** is a heightmap with 2 pt columns: one for the ground and one per window roof. Each flake
   adds its own volume when it lands, and a simple angle-of-repose relaxation lets piles slump, slide with
@@ -134,8 +136,7 @@ The values that define the feel of the snow are marked in the source with `ponyt
 
 - Tilt was tuned by feel; if the snow slides the wrong way, use *Inverti inclinazione*.
 - A maximized window acts as a roof for the whole screen, so almost no snow is visible behind it.
-- The weather is hidden while Mission Control is open, Space previews included: macOS can't show it in the
-  previews without also drawing it over Mission Control.
 - Snow is drawn on the CPU: around 10–15% of a core with normal snowfall on one screen, more during a
   blizzard or with several displays.
-- The snowplows (and the heaps they push) drive in front of every window; the ground drifts are drawn above the Dock.
+- The weather is drawn on the desktop, so the ground drifts sit behind the Dock (they show through it); only the
+  snowplows and the heaps they push drive in front of everything.

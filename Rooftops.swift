@@ -821,28 +821,15 @@ final class SnowView: NSView {
         needsDisplay = true
     }
 
+    /// Everything but the snowplows. This view sits under the app windows, at desktop level, so the
+    /// windows themselves cover whatever is behind them (rounded corners, shadows and all).
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         // ponytail: one CPU path redrawn per frame; move to CAShapeLayer/Metal if CPU matters
-
-        // the sky, behind the windows
-        ctx.saveGState()
-        clipOut(ctx, order[...])
         drawSky(ctx)
-        ctx.restoreGState()
-
-        // snow sits behind windows: clipped exactly at their edges, never hidden column by column
-        for l in ledges.values {
-            ctx.saveGState()
-            clipOut(ctx, order.prefix(order.firstIndex(of: l.frame) ?? 0))  // windows in front of this one
-            drawDrift(ctx, l.pile.h, x0: l.frame.minX, base: l.frame.minY, rounded: true)
-            ctx.restoreGState()
-        }
-        ctx.saveGState()
-        clipOut(ctx, order[...])
-        let (gh, heaps) = groundWithHeaps()
-        let groundPeak = gh.max() ?? 0
-        drawDrift(ctx, gh, x0: 0, base: bounds.maxY, peak: groundPeak)
+        for l in ledges.values { drawDrift(ctx, l.pile.h, x0: l.frame.minX, base: l.frame.minY, rounded: true) }
+        let gh = groundWithHeaps().0
+        drawDrift(ctx, gh, x0: 0, base: bounds.maxY, peak: gh.max() ?? 0)
         if puddle > 0.05 {
             let pool = CGMutablePath(), surface = CGMutablePath()
             pool.move(to: CGPoint(x: 0, y: bounds.maxY))
@@ -856,7 +843,7 @@ final class SnowView: NSView {
             ctx.setStrokeColor(CGColor(red: 0.85, green: 0.93, blue: 1, alpha: 0.8)); ctx.setLineWidth(1.4); ctx.addPath(surface); ctx.strokePath()
         }
         drawFog(ctx)
-        // lightning lights up the sky and strikes, both behind the windows like everything outside
+        // lightning lights up the sky and strikes
         if flash > 0 {
             ctx.setFillColor(CGColor(red: 0.85, green: 0.88, blue: 1, alpha: 0.22 * flash)); ctx.fill(bounds)
         }
@@ -868,40 +855,20 @@ final class SnowView: NSView {
                 ctx.setLineWidth(width * 0.55); ctx.addPath(b.branches); ctx.strokePath()
             }
         }
-        // rain falling behind the windows
+        // rain falling behind the windows (dimmer: farther away)
         let backRain = CGMutablePath()
         for d in drops where d.behind { backRain.move(to: d.p); backRain.addLine(to: CGPoint(x: d.p.x - d.v.dx * 0.02, y: d.p.y - d.v.dy * 0.02)) }
         ctx.setStrokeColor(CGColor(red: 0.8, green: 0.88, blue: 1, alpha: 0.3)); ctx.setLineWidth(1); ctx.addPath(backRain); ctx.strokePath()
-        ctx.restoreGState()
-        // snowplows and the heaps they push drive in front of everything, windows included
-        // (same gradient span as the ground, so a heap blends into the snow it rests on)
-        for h in heaps where !h.isEmpty {
-            drawDrift(ctx, Array(gh[h]), x0: CGFloat(h.lowerBound) * colW, base: bounds.maxY, peak: groundPeak)
-        }
-        for p in plows {
-            ctx.saveGState()
-            // pivot on the rear wheels' contact point and tilt to where the front wheels touch
-            ctx.translateBy(x: p.x + 24, y: bounds.maxY - p.rear)
-            ctx.rotate(by: -atan2(p.ride - p.rear, 88))
-            ctx.translateBy(x: -24, y: 0)
-            drawPlow(ctx, spin: p.x / 11)
-            ctx.restoreGState()
-        }
 
         // flakes: grey copy 1pt lower = cheap outline on white windows (a blurred shadow costs ~50% CPU);
-        // small flakes are dimmer, so they read as farther away
-        // snow falling behind the windows, hidden wherever a window is in front of it
-        ctx.saveGState()
-        clipOut(ctx, order[...])
+        // small flakes and the ones falling behind the windows are dimmer, so they read as farther away
         let back = CGMutablePath()
         for f in flakes where f.behind { back.addEllipse(in: CGRect(x: f.p.x - f.r, y: f.p.y - f.r, width: f.r * 2, height: f.r * 2)) }
         ctx.setFillColor(NSColor(white: 1, alpha: 0.75).cgColor)
         ctx.addPath(back); ctx.fillPath()
-        ctx.restoreGState()
-
         let plastered = ledges.values.flatMap { l in
             l.stuck.map { (p: CGPoint(x: l.frame.minX + $0.p.x, y: l.frame.minY + $0.p.y), r: $0.r) }
-        }.filter { s in !order.contains { $0.contains(s.p) } }  // hidden behind a window in front
+        }
         for far in [true, false] {
             let p = CGMutablePath()
             for f in flakes where !f.behind && (f.r < 1.7) == far {
@@ -927,8 +894,27 @@ final class SnowView: NSView {
         ctx.setStrokeColor(CGColor(red: 0.82, green: 0.9, blue: 1, alpha: 0.6)); ctx.setLineWidth(1.1); ctx.addPath(streaks); ctx.strokePath()
         ctx.setStrokeColor(CGColor(red: 0.82, green: 0.9, blue: 1, alpha: 0.75)); ctx.setLineWidth(1.6); ctx.addPath(rivulets); ctx.strokePath()
         ctx.setFillColor(CGColor(red: 0.85, green: 0.92, blue: 1, alpha: 0.7)); ctx.addPath(spl); ctx.fillPath()
+    }
 
-        // snow thrown off the blade
+    var hasPlows: Bool { !plows.isEmpty || !spray.isEmpty }
+
+    /// The snowplows, the heaps they push and the snow they throw: drawn by a separate view above every
+    /// window, which only exists while they're out (a full-screen window up there upsets Mission Control).
+    func drawFront(_ ctx: CGContext) {
+        // same gradient span as the ground, so a heap blends into the snow it rests on
+        let (gh, heaps) = groundWithHeaps()
+        for h in heaps where !h.isEmpty {
+            drawDrift(ctx, Array(gh[h]), x0: CGFloat(h.lowerBound) * colW, base: bounds.maxY, peak: gh.max() ?? 0)
+        }
+        for p in plows {
+            ctx.saveGState()
+            // pivot on the rear wheels' contact point and tilt to where the front wheels touch
+            ctx.translateBy(x: p.x + 24, y: bounds.maxY - p.rear)
+            ctx.rotate(by: -atan2(p.ride - p.rear, 88))
+            ctx.translateBy(x: -24, y: 0)
+            drawPlow(ctx, spin: p.x / 11)
+            ctx.restoreGState()
+        }
         let thrown = CGMutablePath()
         for s in spray { thrown.addEllipse(in: CGRect(x: s.p.x - s.r, y: s.p.y - s.r, width: s.r * 2, height: s.r * 2)) }
         ctx.saveGState(); ctx.translateBy(x: 0, y: 1)
@@ -942,19 +928,8 @@ final class SnowView: NSView {
         CGColor(red: 0.93, green: 0.96, blue: 1, alpha: 1),
         CGColor(red: 0.78, green: 0.85, blue: 0.95, alpha: 1)] as CFArray, locations: [0, 0.35, 1])!
 
-    /// Draws a heightmap as a soft drift: smoothed outline, white top fading to blue shade at the base.
-    /// Restricts drawing to outside these windows (each clip intersects, so overlaps are handled),
-    /// following their rounded corners so nothing behind leaves a notch of wallpaper there.
-    private func clipOut(_ ctx: CGContext, _ windows: ArraySlice<CGRect>) {
-        for w in windows {
-            ctx.addRect(bounds)
-            ctx.addPath(CGPath(roundedRect: w, cornerWidth: Self.corner, cornerHeight: Self.corner, transform: nil))
-            ctx.clip(using: .evenOdd)
-        }
-    }
-
     // ponytail: macOS doesn't expose the window corner radius; 12 pt matches standard windows
-    static let corner: CGFloat = 12
+    static let corner: CGFloat = 12  // roofs follow it at both ends
 
     /// How far a rounded window's top edge dips below its frame's top at roof column c (0 away from the corners).
     static func cornerDrop(_ c: Int, of count: Int) -> CGFloat {
@@ -962,6 +937,7 @@ final class SnowView: NSView {
         return d > 0 ? corner - (corner * corner - d * d).squareRoot() : 0
     }
 
+    /// Draws a heightmap as a soft drift: smoothed outline, white top fading to blue shade at the base.
     /// `peak` fixes the gradient's span, so separately drawn pieces of the same snow match.
     /// `rounded`: the base follows a window's rounded corners at both ends instead of running straight.
     private func drawDrift(_ ctx: CGContext, _ h: [CGFloat], x0: CGFloat, base: CGFloat, peak fixed: CGFloat? = nil, rounded: Bool = false) {
@@ -1115,11 +1091,22 @@ final class SnowView: NSView {
     }
 }
 
+/// Draws a SnowView's snowplows from a window above every app window.
+final class FrontView: NSView {
+    unowned let snow: SnowView
+    init(snow: SnowView) { self.snow = snow; super.init(frame: snow.frame) }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        if let ctx = NSGraphicsContext.current?.cgContext { snow.drawFront(ctx) }
+    }
+}
+
 // MARK: - App, overlay window, menu bar
 
 final class App: NSObject, NSApplicationDelegate, CLLocationManagerDelegate {
     let tilt = Tilt()
-    var overlays: [(window: NSWindow, view: SnowView)] = []
+    var overlays: [(window: NSWindow, view: SnowView, front: NSWindow)] = []
     var item: NSStatusItem!
     var timer: Timer?
     var intensity: CGFloat = 0.4, invertTilt = false
@@ -1133,21 +1120,29 @@ final class App: NSObject, NSApplicationDelegate, CLLocationManagerDelegate {
     let locator = CLLocationManager()
     var autoTimer: Timer?
 
-    /// One transparent click-through overlay per screen (or just the menu-bar one). Screens that keep the
-    /// same frame keep their overlay and its snow; only added, moved or resized screens start fresh.
+    /// A transparent, click-through, borderless window covering a screen on every Space.
+    func overlayWindow(_ screen: NSScreen, level: CGWindowLevelKey, above: Int, _ behavior: NSWindow.CollectionBehavior) -> NSWindow {
+        let w = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.isOpaque = false
+        w.backgroundColor = .clear
+        w.hasShadow = false
+        w.ignoresMouseEvents = true
+        w.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(level)) + above)
+        w.collectionBehavior = behavior.union([.canJoinAllSpaces, .ignoresCycle])
+        w.setFrame(screen.frame, display: false)
+        return w
+    }
+
+    /// Per screen (or just the menu-bar one): the weather on a window at desktop level, under the app
+    /// windows like the desktop icons, so the windows cover it and Mission Control treats it as the
+    /// desktop; plus a window above everything for the snowplows, shown only while they're out.
+    /// Screens that keep the same frame keep their overlay and its snow; added or resized ones start fresh.
     func buildOverlays() {
         let next = (allScreens ? NSScreen.screens : Array(NSScreen.screens.prefix(1))).map { screen in
             if let kept = overlays.first(where: { $0.window.frame == screen.frame }) { return kept }
             let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID()
-            let w = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-            w.isReleasedWhenClosed = false
-            w.isOpaque = false
-            w.backgroundColor = .clear
-            w.hasShadow = false
-            w.ignoresMouseEvents = true
-            w.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) + 1)  // above the Dock
-            // on every Space, but hidden while Mission Control is open (.stationary drew over it)
-            w.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle, .fullScreenAuxiliary]
+            let w = overlayWindow(screen, level: .desktopIconWindow, above: 1, .stationary)
             let v = SnowView(frame: CGRect(origin: .zero, size: screen.frame.size), origin: CGDisplayBounds(id).origin,
                              tilt: CGDisplayIsBuiltin(id) != 0 ? tilt : nil)
             v.intensity = intensity
@@ -1155,11 +1150,12 @@ final class App: NSObject, NSApplicationDelegate, CLLocationManagerDelegate {
             v.autoPlow = autoPlow
             v.weather = weather
             w.contentView = v
-            w.setFrame(screen.frame, display: false)
             w.orderFrontRegardless()
-            return (w, v)
+            let front = overlayWindow(screen, level: .dockWindow, above: 1, .transient)  // above the Dock too
+            front.contentView = FrontView(snow: v)
+            return (w, v, front)
         }
-        for o in overlays where !next.contains(where: { $0.window === o.window }) { o.window.orderOut(nil) }
+        for o in overlays where !next.contains(where: { $0.window === o.window }) { o.window.orderOut(nil); o.front.orderOut(nil) }
         overlays = next
     }
 
@@ -1203,7 +1199,14 @@ final class App: NSObject, NSApplicationDelegate, CLLocationManagerDelegate {
         showWeather()
         if autoWeather { setAuto(true) }
 
-        let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.overlays.forEach { $0.view.step(dt: 1.0 / 30) } }
+        let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            for o in self?.overlays ?? [] {
+                o.view.step(dt: 1.0 / 30)
+                // the snowplows' window is only on screen while there are snowplows
+                if o.view.hasPlows != o.front.isVisible { o.view.hasPlows ? o.front.orderFrontRegardless() : o.front.orderOut(nil) }
+                if o.front.isVisible { o.front.alphaValue = o.window.alphaValue; o.front.contentView?.needsDisplay = true }
+            }
+        }
         RunLoop.main.add(t, forMode: .common)  // keep snowing while the menu is open
         timer = t
 
