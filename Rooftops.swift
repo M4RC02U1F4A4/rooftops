@@ -353,8 +353,8 @@ final class SnowView: NSView {
                 if !d.behind {
                     for l in ledgeList where d.p.x >= l.frame.minX && d.p.x < l.frame.maxX {
                         let c = min(Int((d.p.x - l.frame.minX) / colW), ledges[l.num]!.pile.h.count - 1)
-                        let top = l.frame.minY - ledges[l.num]!.pile.h[c]
-                        if old.y <= l.frame.minY && d.p.y >= top && !covered(CGPoint(x: d.p.x, y: l.frame.minY + 1), before: l.idx) {
+                        let top = l.frame.minY + Self.cornerDrop(c, of: ledges[l.num]!.pile.h.count) - ledges[l.num]!.pile.h[c]
+                        if old.y <= l.frame.minY && d.p.y >= min(top, l.frame.minY) && !covered(CGPoint(x: d.p.x, y: l.frame.minY + 1), before: l.idx) {
                             splash(CGPoint(x: d.p.x, y: top))
                             // most of the water runs off the front and back of the roof, out of this side view;
                             // only some reaches the ends and drips from the corners
@@ -436,8 +436,11 @@ final class SnowView: NSView {
         let x = CGFloat.random(in: bounds.width * 0.05...bounds.width * 0.95)
         var hit = bounds.maxY - max(surface(at: x), waterLevel(at: x))
         for (i, w) in order.enumerated() where x >= w.minX && x < w.maxX && !covered(CGPoint(x: x, y: w.minY + 1), before: i) {
-            let snow = ledges.values.first { $0.frame == w }.map { $0.pile.h[min(Int((x - w.minX) / colW), $0.pile.h.count - 1)] } ?? 0
-            hit = min(hit, w.minY - snow)
+            let roof = ledges.values.first { $0.frame == w }.map { l in
+                let n = l.pile.h.count, c = min(Int((x - w.minX) / colW), n - 1)
+                return Self.cornerDrop(c, of: n) - l.pile.h[c]
+            } ?? 0
+            hit = min(hit, w.minY + roof)
         }
         // midpoint displacement: each halving adds a smaller sideways kink
         func jag(_ a: CGPoint, _ b: CGPoint, _ spread: CGFloat, _ levels: Int) -> [CGPoint] {
@@ -696,9 +699,10 @@ final class SnowView: NSView {
             // window ledges
             for l in ledgeList where !f.behind && f.p.x >= l.frame.minX && f.p.x < l.frame.maxX {
                 let c = Int((f.p.x - l.frame.minX) / colW)
-                let top = l.frame.minY - ledges[l.num]!.pile.h[min(c, ledges[l.num]!.pile.h.count - 1)]
+                let n = ledges[l.num]!.pile.h.count, cc = min(c, n - 1)
+                let top = l.frame.minY + Self.cornerDrop(cc, of: n) - ledges[l.num]!.pile.h[cc]  // follows the rounded corners
                 // was above the roof and is now in or under the snow surface (which can rise past it when lots lands at once)
-                if old.y <= l.frame.minY && f.p.y >= top && !covered(CGPoint(x: f.p.x, y: l.frame.minY + 1), before: l.idx) {
+                if old.y <= l.frame.minY && f.p.y >= min(top, l.frame.minY) && !covered(CGPoint(x: f.p.x, y: l.frame.minY + 1), before: l.idx) {
                     landed = ledges[l.num]!.pile.add(x: f.p.x - l.frame.minX, r: f.r)
                     break
                 }
@@ -831,7 +835,7 @@ final class SnowView: NSView {
         for l in ledges.values {
             ctx.saveGState()
             clipOut(ctx, order.prefix(order.firstIndex(of: l.frame) ?? 0))  // windows in front of this one
-            drawDrift(ctx, l.pile.h, x0: l.frame.minX, base: l.frame.minY)
+            drawDrift(ctx, l.pile.h, x0: l.frame.minX, base: l.frame.minY, rounded: true)
             ctx.restoreGState()
         }
         ctx.saveGState()
@@ -942,16 +946,25 @@ final class SnowView: NSView {
     /// Restricts drawing to outside these windows (each clip intersects, so overlaps are handled),
     /// following their rounded corners so nothing behind leaves a notch of wallpaper there.
     private func clipOut(_ ctx: CGContext, _ windows: ArraySlice<CGRect>) {
-        // ponytail: macOS doesn't expose the window corner radius; 12 pt matches standard windows
         for w in windows {
             ctx.addRect(bounds)
-            ctx.addPath(CGPath(roundedRect: w, cornerWidth: 12, cornerHeight: 12, transform: nil))
+            ctx.addPath(CGPath(roundedRect: w, cornerWidth: Self.corner, cornerHeight: Self.corner, transform: nil))
             ctx.clip(using: .evenOdd)
         }
     }
 
+    // ponytail: macOS doesn't expose the window corner radius; 12 pt matches standard windows
+    static let corner: CGFloat = 12
+
+    /// How far a rounded window's top edge dips below its frame's top at roof column c (0 away from the corners).
+    static func cornerDrop(_ c: Int, of count: Int) -> CGFloat {
+        let d = corner - (CGFloat(min(c, count - 1 - c)) + 0.5) * colW  // how deep into the corner's curve
+        return d > 0 ? corner - (corner * corner - d * d).squareRoot() : 0
+    }
+
     /// `peak` fixes the gradient's span, so separately drawn pieces of the same snow match.
-    private func drawDrift(_ ctx: CGContext, _ h: [CGFloat], x0: CGFloat, base: CGFloat, peak fixed: CGFloat? = nil) {
+    /// `rounded`: the base follows a window's rounded corners at both ends instead of running straight.
+    private func drawDrift(_ ctx: CGContext, _ h: [CGFloat], x0: CGFloat, base: CGFloat, peak fixed: CGFloat? = nil, rounded: Bool = false) {
         let n = h.count
         var s = h  // smoothed copy for drawing only; the simulation keeps the raw heights
         for _ in 0..<5 { s = (0..<n).map { i in (s[max(0, i - 1)] + 2 * s[i] + s[min(n - 1, i + 1)]) / 4 } }
@@ -959,14 +972,15 @@ final class SnowView: NSView {
         var i = 0, peak: CGFloat = 0
         while i < n {
             guard s[i] > 0.4 else { i += 1; continue }
-            body.move(to: CGPoint(x: x0 + CGFloat(i) * colW, y: base))
-            edge.move(to: CGPoint(x: x0 + (CGFloat(i) + 0.5) * colW, y: base - s[i]))  // outline the top only
+            func floor(_ c: Int) -> CGFloat { base + (rounded ? Self.cornerDrop(min(c, n - 1), of: n) : 0) }
+            body.move(to: CGPoint(x: x0 + CGFloat(i) * colW, y: floor(i)))
+            edge.move(to: CGPoint(x: x0 + (CGFloat(i) + 0.5) * colW, y: floor(i) - s[i]))  // outline the top only
             while i < n, s[i] > 0.4 {
-                let p = CGPoint(x: x0 + (CGFloat(i) + 0.5) * colW, y: base - s[i])
+                let p = CGPoint(x: x0 + (CGFloat(i) + 0.5) * colW, y: floor(i) - s[i])
                 body.addLine(to: p); edge.addLine(to: p)
                 peak = max(peak, s[i]); i += 1
             }
-            body.addLine(to: CGPoint(x: x0 + CGFloat(i) * colW, y: base))
+            body.addLine(to: CGPoint(x: x0 + CGFloat(i) * colW, y: floor(i - 1)))
             body.closeSubpath()
         }
         guard peak > 0 else { return }
