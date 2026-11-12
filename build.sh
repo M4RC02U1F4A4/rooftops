@@ -13,6 +13,8 @@ cat > Snow.app/Contents/Info.plist <<PLIST
   <key>CFBundleExecutable</key><string>Snow</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSUIElement</key><true/>
+  <key>NSLocationUsageDescription</key><string>Snow usa la tua posizione per mostrare il meteo del posto in cui ti trovi.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>Snow usa la tua posizione per mostrare il meteo del posto in cui ti trovi.</string>
 </dict></plist>
 PLIST
 codesign --force --sign - Snow.app

@@ -1,4 +1,5 @@
 import AppKit
+import CoreLocation
 import IOKit
 import IOKit.hid
 
@@ -1098,7 +1099,7 @@ final class SnowView: NSView {
 
 // MARK: - App, overlay window, menu bar
 
-final class App: NSObject, NSApplicationDelegate {
+final class App: NSObject, NSApplicationDelegate, CLLocationManagerDelegate {
     let tilt = Tilt()
     var overlays: [(window: NSWindow, view: SnowView)] = []
     var item: NSStatusItem!
@@ -1109,6 +1110,10 @@ final class App: NSObject, NSApplicationDelegate {
     var weather = SnowView.Weather(rawValue: UserDefaults.standard.string(forKey: "weather") ?? "")
         ?? (UserDefaults.standard.bool(forKey: "rain") ? .rain : .snow)
     var weatherItems: [(SnowView.Weather, NSMenuItem)] = []
+    var autoWeather = UserDefaults.standard.bool(forKey: "autoWeather")  // follow the weather where you are
+    var autoItem: NSMenuItem!, slider: NSSlider!
+    let locator = CLLocationManager()
+    var autoTimer: Timer?
 
     /// One transparent click-through overlay per screen (or just the menu-bar one). Screens that keep the
     /// same frame keep their overlay and its snow; only added, moved or resized screens start fresh.
@@ -1146,13 +1151,15 @@ final class App: NSObject, NSApplicationDelegate {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let menu = NSMenu()
         menu.addItem(.sectionHeader(title: "Meteo"))
+        autoItem = menu.addItem(withTitle: "Automatico", action: #selector(chooseAuto), keyEquivalent: "")
+        autoItem.target = self
         for (w, title) in [(SnowView.Weather.snow, "Neve"), (.rain, "Pioggia"), (.sun, "Sole"), (.fog, "Nebbia")] {
             let it = menu.addItem(withTitle: title, action: #selector(chooseWeather(_:)), keyEquivalent: "")
             it.target = self
             weatherItems.append((w, it))
         }
         menu.addItem(.sectionHeader(title: "Intensità"))
-        let slider = NSSlider(value: Double(intensity), minValue: 0, maxValue: 1, target: self, action: #selector(level(_:)))
+        slider = NSSlider(value: Double(intensity), minValue: 0, maxValue: 1, target: self, action: #selector(level(_:)))
         slider.frame = CGRect(x: 18, y: 4, width: 180, height: 22)
         let holder = NSView(frame: CGRect(x: 0, y: 0, width: 216, height: 30))
         holder.addSubview(slider)
@@ -1175,6 +1182,7 @@ final class App: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Esci", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         showWeather()
+        if autoWeather { setAuto(true) }
 
         let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.overlays.forEach { $0.view.step(dt: 1.0 / 30) } }
         RunLoop.main.add(t, forMode: .common)  // keep snowing while the menu is open
@@ -1182,6 +1190,7 @@ final class App: NSObject, NSApplicationDelegate {
 
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.tilt.wake()
+            if self?.autoWeather == true { self?.locator.requestLocation() }  // the weather may have changed overnight
         }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.overlays.forEach { $0.view.spaceChanged() }
@@ -1196,23 +1205,24 @@ final class App: NSObject, NSApplicationDelegate {
 
     @objc func level(_ s: NSSlider) { intensity = CGFloat(s.doubleValue); overlays.forEach { $0.view.intensity = intensity }; showWeather() }
     @objc func plow() { overlays.forEach { $0.view.callPlow() } }
-    // each storm switches to its own weather first, so both work from either mode
-    @objc func blizzard() { setWeather(.snow); overlays.forEach { $0.view.startStorm() } }
-    @objc func thunderstorm() { setWeather(.rain); overlays.forEach { $0.view.startStorm() } }
+    // each storm switches to its own weather first, so both work from either mode (and leave automatic mode)
+    @objc func blizzard() { setAuto(false); setWeather(.snow); overlays.forEach { $0.view.startStorm() } }
+    @objc func thunderstorm() { setAuto(false); setWeather(.rain); overlays.forEach { $0.view.startStorm() } }
     @objc func invert(_ m: NSMenuItem) {
         invertTilt.toggle(); m.state = invertTilt ? .on : .off
         overlays.forEach { $0.view.invertTilt = invertTilt }
     }
-    @objc func chooseWeather(_ m: NSMenuItem) { setWeather(weatherItems.first { $0.1 === m }!.0) }
+    @objc func chooseWeather(_ m: NSMenuItem) { setAuto(false); setWeather(weatherItems.first { $0.1 === m }!.0) }
     func setWeather(_ w: SnowView.Weather) {
         weather = w
-        UserDefaults.standard.set(w.rawValue, forKey: "weather")
+        if !autoWeather { UserDefaults.standard.set(w.rawValue, forKey: "weather") }  // the manual choice is what's remembered
         overlays.forEach { $0.view.weather = w }
         showWeather()
     }
-    /// Menu ticks, the storm's name and the menu-bar icon follow the chosen weather.
+    /// Menu ticks and the menu-bar icon follow the weather; in automatic mode the one picked for you gets a dash.
     func showWeather() {
-        for (w, it) in weatherItems { it.state = w == weather ? .on : .off }
+        autoItem.state = autoWeather ? .on : .off
+        for (w, it) in weatherItems { it.state = w != weather ? .off : autoWeather ? .mixed : .on }
         let icon = switch weather {
         case .snow: "snowflake"
         case .rain: "cloud.rain"
@@ -1221,6 +1231,71 @@ final class App: NSObject, NSApplicationDelegate {
         }
         item.button?.image = NSImage(systemSymbolName: icon, accessibilityDescription: weatherItems.first { $0.0 == weather }?.1.title)
     }
+    // MARK: Automatic weather: Location Services for where you are, Open-Meteo for the weather there
+
+    @objc func chooseAuto() { setAuto(true) }
+
+    func setAuto(_ on: Bool) {
+        autoWeather = on
+        UserDefaults.standard.set(on, forKey: "autoWeather")
+        autoTimer?.invalidate(); autoTimer = nil
+        if on {
+            locator.delegate = self
+            locator.requestWhenInUseAuthorization()  // asks the first time
+            locator.requestLocation()
+            // ponytail: every 15 min; Open-Meteo's current conditions don't change faster than that
+            autoTimer = Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { [weak self] _ in self?.locator.requestLocation() }
+        } else {
+            autoItem.title = "Automatico"
+            weather = SnowView.Weather(rawValue: UserDefaults.standard.string(forKey: "weather") ?? "") ?? weather
+        }
+        showWeather()
+    }
+
+    func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
+        // once answered, ask again: allowed gets the weather, denied ends in didFailWithError
+        if autoWeather && m.authorizationStatus != .notDetermined { m.requestLocation() }
+    }
+
+    func locationManager(_ m: CLLocationManager, didFailWithError error: Error) {
+        autoItem.title = "Automatico (posizione non disponibile)"
+    }
+
+    func locationManager(_ m: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard autoWeather, let c = locations.last?.coordinate else { return }
+        autoItem.title = "Automatico"
+        // rounded to ~10 km: plenty for the weather, and it's all that leaves this Mac
+        let lat = (c.latitude * 10).rounded() / 10, lon = (c.longitude * 10).rounded() / 10
+        guard let url = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=weather_code,cloud_cover") else { return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let now = json["current"] as? [String: Any], let code = now["weather_code"] as? Int else { return }
+            let (w, level) = App.local(code: code, cloud: now["cloud_cover"] as? Double ?? 50)
+            DispatchQueue.main.async {
+                guard let self, self.autoWeather else { return }
+                self.intensity = level
+                self.slider.doubleValue = Double(level)
+                self.overlays.forEach { $0.view.intensity = level }
+                self.setWeather(w)
+            }
+        }.resume()
+    }
+
+    /// WMO weather code (as Open-Meteo reports it) → what to show and how hard.
+    static func local(code: Int, cloud: Double) -> (SnowView.Weather, CGFloat) {
+        switch code {
+        case 45, 48: (.fog, 0.7)
+        case 51, 56, 61, 66, 80: (.rain, 0.4)                // drizzle, light rain, light showers
+        case 53, 63, 81: (.rain, 0.65)
+        case 55, 57, 65, 67, 82: (.rain, 0.9)
+        case 95, 96, 99: (.rain, 1)                          // thunderstorm: heavy rain brings the lightning
+        case 71, 77, 85: (.snow, 0.4)
+        case 73: (.snow, 0.65)
+        case 75, 86: (.snow, 0.9)
+        default: (.sun, CGFloat(max(0, min(100, cloud))) / 100)  // 0–3: clear to overcast, as cloudy as it is
+        }
+    }
+
     @objc func toggleAutoPlow(_ m: NSMenuItem) {
         autoPlow.toggle(); m.state = autoPlow ? .on : .off
         UserDefaults.standard.set(autoPlow, forKey: "autoPlow")
@@ -1259,6 +1334,10 @@ func selftest() {
     var held = Pile(width: 300, cap: 100); held.h = Array(repeating: 10, count: 150)
     for _ in 0..<90 { _ = held.slide(s: sin(10 * .pi / 180), dt: 1.0 / 30) }
     precondition(held.total == 1500 && held.v == 0, "10°: static friction holds")
+    // automatic weather: WMO codes map onto the four modes
+    precondition(App.local(code: 0, cloud: 0) == (.sun, 0) && App.local(code: 3, cloud: 100) == (.sun, 1), "clear to overcast")
+    precondition(App.local(code: 45, cloud: 100).0 == .fog && App.local(code: 63, cloud: 100).0 == .rain, "fog, rain")
+    precondition(App.local(code: 95, cloud: 100) == (.rain, 1) && App.local(code: 75, cloud: 100).0 == .snow, "storm, snow")
     print("selftest ok")
 }
 

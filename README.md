@@ -46,6 +46,9 @@ One Swift file, no dependencies, no Xcode project.
   and the puddle dries up.
 - **Fog mode**: banks of fog flow past at different speeds over a haze that thickens toward the ground; the
   slider sets how thick it is.
+- **Automatic weather**: shows the weather where you are, refreshed every 15 minutes: clear or cloudy skies
+  become sun mode with the real cloud cover, fog becomes fog, drizzle, rain and showers become rain (a
+  thunderstorm brings lightning), snow becomes snow, each as strong as it really is.
 - **Multiple displays**: snow on the main screen only, or on all screens. External monitors don't tilt.
 
 ## Requirements
@@ -76,7 +79,8 @@ The menu is in Italian:
 
 | Section   | Item                      | What it does                                                         |
 |-----------|---------------------------|----------------------------------------------------------------------|
-| Meteo     | Neve / Pioggia / Sole / Nebbia | Snow, rain, sun and clouds, or fog (remembered)                 |
+| Meteo     | Automatico                | Follows the weather where you are (remembered); the mode it picked is marked with a dash |
+|           | Neve / Pioggia / Sole / Nebbia | Snow, rain, sun and clouds, or fog (remembered; leaves automatic mode) |
 | Intensità | slider                    | How hard it snows or rains, how cloudy the sunny sky is, how thick the fog is |
 | Neve      | Tormenta di neve (⌘T)     | Switches to snow and starts a 15 s blizzard with random gusts        |
 |           | Chiama lo spazzaneve (⌘P) | Sends the snowplow convoy now                                        |
@@ -101,6 +105,13 @@ The menu is in Italian:
   (`AppleSPUHIDDriver`, usage page `0xFF00`, usage `3`). The app enables only that sensor at 50 Hz, reads its
   sideways axis, and switches it off again on quit. This is undocumented hardware access and might change
   with future macOS versions.
+
+## Privacy
+
+The app only reads the position and size of your windows, never their content, and needs no Screen
+Recording permission. Nothing leaves your Mac unless you turn on automatic weather: then macOS asks for
+Location Services, and every 15 minutes your coordinates, rounded to about 10 km, are sent to
+[Open-Meteo](https://open-meteo.com) (free, no account or API key) to get the current weather there.
 
 ## Tuning
 
