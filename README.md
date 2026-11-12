@@ -41,8 +41,8 @@ One Swift file, no dependencies, no Xcode project.
   ahead like real snow; what doesn't fit is thrown over the blade.
 - **Rain mode**: switch from snow to rain in the menu. Drops fall as fast streaks and splash instead of
   piling up; water runs off the window roofs and drips from their corners, trickles down walls it hits, and
-  collects in a puddle at the bottom that stays level with real gravity, so tilting the laptop sends it to the
-  lower side. Rain melts whatever snow is there. In rain mode the blizzard becomes a thunderstorm, with lightning
+  collects in a puddle at the bottom, up to a third of the Dock, that runs and sloshes with real gravity: tilt
+  the laptop and the water flows to the lower side, and the drops ripple it. Rain melts whatever snow is there. In rain mode the blizzard becomes a thunderstorm, with lightning
   every couple of seconds; heavy rain brings lightning too, more often the harder it rains: a forked bolt hits the first thing below
   it, a window roof or the ground, with sparks, and the sky flashes behind the windows.
 - **Sun mode**: the sun crosses the sky with the local time (the moon at night), clouds drift by on a breeze,

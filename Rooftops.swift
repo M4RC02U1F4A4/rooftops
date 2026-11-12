@@ -77,6 +77,68 @@ struct Pile {
     }
 }
 
+// MARK: - Water: the puddle at the bottom of the screen, a 1-D shallow-water heightfield
+
+struct Water {
+    static let dx: CGFloat = 8  // column width, in points
+    // ponytail: real gravity (1 pt ≈ 0.2 mm on a laptop screen) and the drag of a few-mm film (grows as
+    // 1/depth², so thin water barely moves); lower G for lazier sloshing, raise `drag` to calm it sooner
+    static let G: CGFloat = 49000, drag: CGFloat = 0.4, film: CGFloat = 75
+    var h: [CGFloat]  // depth of each column
+    var u: [CGFloat]  // speed across the face right of each column; the last face is the right wall
+
+    init(width: CGFloat) {
+        h = Array(repeating: 0, count: max(2, Int((width / Self.dx).rounded(.up))))
+        u = h
+    }
+
+    var volume: CGFloat { h.reduce(0, +) * Self.dx }
+
+    /// Surface height at x, interpolated between column centres (clamped off screen).
+    func level(at x: CGFloat) -> CGFloat {
+        let p = max(0, min(CGFloat(h.count - 1), x / Self.dx - 0.5))
+        let i = min(Int(p), h.count - 2)
+        return h[i] + (h[i + 1] - h[i]) * (p - CGFloat(i))
+    }
+
+    /// Pours `volume` (pt²) in at x (lost off screen); `kick` pushes the water out from there so a drop rings.
+    mutating func add(x: CGFloat, volume: CGFloat, kick: CGFloat = 0) {
+        let i = Int(x / Self.dx)
+        guard x >= 0, h.indices.contains(i) else { return }
+        h[i] += volume / Self.dx
+        u[i] += kick
+        if i > 0 { u[i - 1] -= kick }
+    }
+
+    /// Gravity (gx sideways, + = right side down; gy into the floor) pushes the water from high surface to
+    /// low; the screen edges are walls. Volume is conserved and no column goes below empty.
+    mutating func step(gx: CGFloat, gy: CGFloat, dt: CGFloat) {
+        let n = h.count, dx = Self.dx
+        let deepest = h.max() ?? 0, fastest = u.map(abs).max() ?? 0
+        guard deepest > 1e-3 else { return }
+        // substeps so a wave never crosses more than half a column per step, however deep the water piles up
+        let steps = min(300, Int(((Self.G * gy * deepest).squareRoot() + fastest) * dt / (0.5 * dx)) + 1)
+        let sub = dt / CGFloat(steps)
+        var flux = [CGFloat](repeating: 0, count: n), scale = flux
+        for _ in 0..<steps {
+            for i in 0..<(n - 1) {
+                let depth = max(0.5, (h[i] + h[i + 1]) / 2)
+                u[i] = (u[i] + Self.G * (gx - gy * (h[i + 1] - h[i]) / dx) * sub) / (1 + (Self.drag + Self.film / (depth * depth)) * sub)
+                let up = u[i] > 0 ? h[i] : h[i + 1]
+                if up < 1e-4 { u[i] = 0 }  // nothing upstream: don't let the slope keep charging a dry face
+                flux[i] = u[i] * up * sub
+            }
+            u[n - 1] = 0; flux[n - 1] = 0
+            for i in 0..<n {  // a column can't give more than it holds
+                let out = max(0, flux[i]) + (i > 0 ? max(0, -flux[i - 1]) : 0)
+                scale[i] = out > h[i] * dx ? h[i] * dx / out : 1
+            }
+            for i in 0..<(n - 1) { flux[i] *= scale[flux[i] > 0 ? i : i + 1] }
+            for i in 0..<n { h[i] = max(0, h[i] + ((i > 0 ? flux[i - 1] : 0) - flux[i]) / dx) }
+        }
+    }
+}
+
 // MARK: - Accelerometer (Apple Silicon MacBooks expose it as a vendor HID device)
 
 final class Tilt {
@@ -180,7 +242,7 @@ final class SnowView: NSView {
     }
     private var drops: [Drop] = []
     private var splashes: [(p: CGPoint, v: CGVector, life: CGFloat)] = []
-    private var puddle: CGFloat = 0     // water at the bottom of the screen, as an average depth
+    private var puddle: Water           // water at the bottom of the screen
     private var bolts: [(trunk: CGPath, branches: CGPath, life: CGFloat)] = []  // lightning on screen
     private var flash: CGFloat = 0      // sky lit up by the last strike, fading
     private var ledges: [Int: Ledge] = [:]  // keyed by CG window number
@@ -211,6 +273,7 @@ final class SnowView: NSView {
         self.origin = origin
         self.tilt = tilt
         ground = Pile(width: frame.width, cap: frame.height * 0.6)
+        puddle = Water(width: frame.width)
         super.init(frame: frame)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -323,7 +386,7 @@ final class SnowView: NSView {
     }
 
     /// Rain: streaks that splash instead of piling up. Roofs shed their water off the edges, side walls get
-    /// rivulets, the water collects in a puddle at the bottom that stays level with real gravity, and the
+    /// rivulets, the water collects in a puddle at the bottom that runs and sloshes with real gravity, and the
     /// snow that's there melts away.
     private func stepRain(dt: CGFloat, g: CGFloat, gy: CGFloat) {
         let ledgeList = ledges.map { (num: $0.key, frame: $0.value.frame, idx: order.firstIndex(of: $0.value.frame) ?? 0) }
@@ -370,10 +433,12 @@ final class SnowView: NSView {
                     }
                 }
             }
-            let surface = max(surface(at: d.p.x), waterLevel(at: d.p.x))
+            let surface = max(surface(at: d.p.x), puddle.level(at: d.p.x))
             if !done && d.p.y >= bounds.maxY - surface {
                 splash(CGPoint(x: d.p.x, y: bounds.maxY - surface))
-                puddle += 0.0015
+                // ponytail: 0.0024 W per drop fills it as fast as before (a third of the drops land off screen);
+                // kick 100 = ~1 pt ripples in normal rain, choppy in a storm
+                puddle.add(x: d.p.x, volume: 0.0024 * bounds.width, kick: 100)
                 done = true
             }
             if done || d.p.y > bounds.maxY + 20 || d.p.x < -bounds.width * 0.5 || d.p.x > bounds.width * 1.5 {
@@ -408,18 +473,20 @@ final class SnowView: NSView {
         bolts = bolts.compactMap { b in b.life > dt ? (b.trunk, b.branches, b.life - dt) : nil }
         flash = max(0, flash - 4 * dt)
 
-        // ponytail: the puddle drains ~6%/s and tops out at 30 pt
-        puddle = min(30, puddle * (1 - 0.06 * dt))
-
         // rain and sun melt the snow: roofs shed it as dripping water, the ground's runs into the puddle;
         // the sun also dries the puddle up. Clouds and night slow the sun down.
         let sun = weather == .sun ? daylight() * (1 - 0.7 * intensity) : 0
-        puddle *= 1 - 0.12 * sun * dt
+        // ponytail: the puddle drains ~6%/s; unlike the snow it stops rising at a third of the Dock (level
+        // depth: tilting still piles it up on the low side)
+        let keep = (1 - 0.06 * dt) * (1 - 0.12 * sun * dt) / max(1, puddle.volume / bounds.width / (dockHeight / 3))
+        for i in puddle.h.indices { puddle.h[i] *= keep }
+        puddle.step(gx: g, gy: gy, dt: dt)  // runs downhill, sloshes, rings
         guard rain || sun > 0 else { return }
         let melt = (rain ? 0.1 + 0.3 * intensity + 0.4 * stormLevel : 0.6 * sun) * dt
-        var melted: CGFloat = 0
-        for c in ground.h.indices where ground.h[c] > 0 { let m = min(ground.h[c], melt); ground.h[c] -= m; melted += m }
-        puddle += melted * colW / bounds.width * 0.5
+        for c in ground.h.indices where ground.h[c] > 0 {
+            let m = min(ground.h[c], melt); ground.h[c] -= m
+            puddle.add(x: CGFloat(c) * colW, volume: m * colW * 0.5)  // the meltwater appears under the snow
+        }
         for num in ledges.keys {
             var roof: CGFloat = 0
             for c in ledges[num]!.pile.h.indices where ledges[num]!.pile.h[c] > 0 {
@@ -434,7 +501,7 @@ final class SnowView: NSView {
     /// the ground, snow or puddle. Jagged trunk with a few forks, sparks where it hits, and the sky flashes.
     private func strike() {
         let x = CGFloat.random(in: bounds.width * 0.05...bounds.width * 0.95)
-        var hit = bounds.maxY - max(surface(at: x), waterLevel(at: x))
+        var hit = bounds.maxY - max(surface(at: x), puddle.level(at: x))
         for (i, w) in order.enumerated() where x >= w.minX && x < w.maxX && !covered(CGPoint(x: x, y: w.minY + 1), before: i) {
             let roof = ledges.values.first { $0.frame == w }.map { l in
                 let n = l.pile.h.count, c = min(Int((x - w.minX) / colW), n - 1)
@@ -573,14 +640,6 @@ final class SnowView: NSView {
         return Int(k) + (CGFloat.random(in: 0..<1) < k.truncatingRemainder(dividingBy: 1) ? 1 : 0)
     }
 
-    /// Height of the puddle's surface at x: level with real gravity, so tilting sends the water downhill.
-    private func waterLevel(at x: CGFloat) -> CGFloat {
-        guard puddle > 0.05 else { return 0 }
-        var g = tilt.map { invertTilt ? -$0.x : $0.x } ?? 0
-        g = max(-0.9, min(0.9, g))
-        return max(0, puddle + (x - bounds.midX) * g / (1 - g * g).squareRoot())
-    }
-
     /// Puts a flake's worth of snow straight onto window w's roof (lost if the roof is full).
     private func settle(on w: CGRect, x: CGFloat, r: CGFloat) {
         guard let num = ledges.first(where: { $0.value.frame == w })?.key else { return }
@@ -609,6 +668,12 @@ final class SnowView: NSView {
         return s
     }
 
+    /// Height of the Dock at the bottom of this screen; hidden, side or no Dock: a standard 70 pt one.
+    private var dockHeight: CGFloat {
+        let dock = (window?.screen).map { $0.visibleFrame.minY - $0.frame.minY } ?? 0
+        return dock > 20 ? dock : 70
+    }
+
     /// Snow height around x, averaged over a few columns (0 off screen).
     private func surface(at x: CGFloat) -> CGFloat {
         let c = Int((x / colW).rounded(.down))
@@ -628,8 +693,7 @@ final class SnowView: NSView {
             // one snowplow sets off by itself once a quarter of the screen width has snow above half the Dock
             // (one lone drift isn't enough) and lowers it all to half that level in a single pass; if that
             // much builds up again where it already passed, another truck follows
-            let dock = (window?.screen).map { $0.visibleFrame.minY - $0.frame.minY } ?? 0
-            let limit = (dock > 20 ? dock : 70) / 2  // hidden, side or no Dock: assume a standard 70 pt one
+            let limit = dockHeight / 2
             let passed = min(ground.h.count, max(0, plows.map { Int(($0.x + Self.plowLen) / colW) }.min() ?? ground.h.count))
             let deep = ground.h[..<passed].lazy.filter { $0 > limit }.count
             // ponytail: 25% of the width; lower it to plow sooner, raise it to let more snow build up
@@ -830,15 +894,18 @@ final class SnowView: NSView {
         for l in ledges.values { drawDrift(ctx, l.pile.h, x0: l.frame.minX, base: l.frame.minY, rounded: true) }
         let gh = groundWithHeaps().0
         drawDrift(ctx, gh, x0: 0, base: bounds.maxY, peak: gh.max() ?? 0)
-        if puddle > 0.05 {
+        if puddle.volume > 0.05 * bounds.width {
             let pool = CGMutablePath(), surface = CGMutablePath()
             pool.move(to: CGPoint(x: 0, y: bounds.maxY))
-            for x in stride(from: 0, through: bounds.maxX, by: 8) {
-                let p = CGPoint(x: x, y: bounds.maxY - waterLevel(at: x))
+            var wet = false
+            for x in stride(from: 0, through: bounds.maxX + 3, by: 4) {
+                let h = puddle.level(at: x), p = CGPoint(x: x, y: bounds.maxY - h)
                 pool.addLine(to: p)
-                if x == 0 { surface.move(to: p) } else { surface.addLine(to: p) }
+                // the highlight only where there's water, or it would trace the bottom of the screen
+                if h > 0.3 { if wet { surface.addLine(to: p) } else { surface.move(to: p) } }
+                wet = h > 0.3
             }
-            pool.addLine(to: CGPoint(x: bounds.maxX, y: bounds.maxY)); pool.closeSubpath()
+            pool.addLine(to: CGPoint(x: bounds.maxX + 3, y: bounds.maxY)); pool.closeSubpath()
             ctx.setFillColor(CGColor(red: 0.38, green: 0.55, blue: 0.85, alpha: 0.45)); ctx.addPath(pool); ctx.fillPath()
             ctx.setStrokeColor(CGColor(red: 0.85, green: 0.93, blue: 1, alpha: 0.8)); ctx.setLineWidth(1.4); ctx.addPath(surface); ctx.strokePath()
         }
