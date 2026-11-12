@@ -357,9 +357,9 @@ final class SnowView: NSView {
             ledges[num]!.water = w
         }
 
-        // lightning: every couple of seconds in a thunderstorm, now and then in very heavy rain
-        // ponytail: 0.4 strikes/s at full storm, up to 0.04/s from heavy rain alone
-        let strikes = stormLevel * 0.4 + max(0, intensity - 0.6) * 0.1
+        // lightning: every couple of seconds in a thunderstorm, and in heavy rain too
+        // ponytail: 0.4 strikes/s at full storm; rain alone from half intensity, up to one every ~4 s at full
+        let strikes = stormLevel * 0.4 + max(0, intensity - 0.5) * 0.5
         if rain && CGFloat.random(in: 0..<1) < strikes * dt { strike() }
         bolts = bolts.compactMap { b in b.life > dt ? (b.trunk, b.branches, b.life - dt) : nil }
         flash = max(0, flash - 4 * dt)
