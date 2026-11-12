@@ -247,6 +247,13 @@ final class SnowView: NSView {
             order.append(r)
             seen[num] = r
         }
+        // a Space switch slides all the windows sideways together, before macOS says anything: hide the
+        // overlay right away so the snow and sky don't sweep along with them, and don't shake any roof
+        let shifts = seen.compactMap { num, r in ledges[num].map { (dx: r.minX - $0.frame.minX, dy: r.minY - $0.frame.minY) } }
+            .filter { abs($0.dx) > 8 }
+        let sliding = shifts.count >= 2 && shifts.allSatisfy { abs($0.dx - shifts[0].dx) < 2 && abs($0.dy) < 2 }
+        if sliding { spaceChanged() }
+
         var moved: [(Ledge, CGRect?)] = []  // snow to shake off, and where that window is now
         for (num, l) in ledges where seen[num] != l.frame {
             ledges[num] = nil
@@ -256,7 +263,7 @@ final class SnowView: NSView {
                 // dragged: the roof carries its snow along like a tray; a fast move shakes some of it off
                 // ponytail: nothing falls below 300 pt/s; at 1800 pt/s about half of it per tenth of a second
                 let speed = hypot(nf.minX - l.frame.minX, nf.minY - l.frame.minY) / dt
-                let jolt = min(0.5, max(0, (speed - 300) / 3000) * dt / 0.1)
+                let jolt = sliding ? 0 : min(0.5, max(0, (speed - 300) / 3000) * dt / 0.1)
                 var carried = l, shaken = Ledge(frame: l.frame, pile: l.pile)
                 carried.frame = nf
                 carried.pile.cap = max(0, min(50, nf.minY - menuBar))
