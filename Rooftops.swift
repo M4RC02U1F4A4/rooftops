@@ -1316,7 +1316,7 @@ final class App: NSObject, NSApplicationDelegate, CLLocationManagerDelegate {
     }
 }
 
-// MARK: - Self-check: `Snow --selftest`
+// MARK: - Self-check: `Rooftops --selftest`
 
 func selftest() {
     var p = Pile(width: 20, cap: 100)       // 10 columns

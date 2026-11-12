@@ -1,10 +1,12 @@
-# Snow
+# Rooftops
 
-![Snow on a desktop: snow-covered windows, falling snow, and a snowplow lowering the drifts over the Dock](docs/screenshot.png)
+![Rooftops on a desktop: snow-covered windows, falling snow, and a snowplow lowering the drifts over the Dock](docs/screenshot.png)
 
-A tiny macOS menu-bar app that makes it snow on your desktop. Windows behave like houses: snow piles up
-on their title bars, sticks to their walls, slides off when you move them, and drifts up at the bottom
-of the screen. Tilt your MacBook and the snow follows gravity. When it gets too deep, call the snowplows.
+A tiny macOS menu-bar app that brings the weather to your desktop: snow, rain with lightning, sun and
+clouds, or fog, or whatever it's like outside right now. Windows behave like houses: snow piles up on their
+roofs (the title bars), sticks to their walls, slides off when you move them, and drifts up at the bottom of
+the screen; rain drips off them and puddles below. Tilt your MacBook and everything follows gravity. When the
+snow gets too deep, the snowplows come.
 
 One Swift file, no dependencies, no Xcode project.
 
@@ -61,8 +63,8 @@ One Swift file, no dependencies, no Xcode project.
 ## Build and run
 
 ```sh
-./build.sh          # compiles Snow.swift into Snow.app and ad-hoc signs it
-open Snow.app
+./build.sh          # compiles Rooftops.swift into Rooftops.app and ad-hoc signs it
+open Rooftops.app
 ```
 
 The app has no Dock icon: look for the snowflake in the menu bar (it follows the weather: rain cloud, sun, fog).
@@ -70,7 +72,7 @@ The app has no Dock icon: look for the snowflake in the menu bar (it follows the
 To check the snow physics (piles, avalanches, slab slides):
 
 ```sh
-Snow.app/Contents/MacOS/Snow --selftest
+Rooftops.app/Contents/MacOS/Rooftops --selftest
 ```
 
 ## Menu
