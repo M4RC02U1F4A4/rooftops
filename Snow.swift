@@ -166,10 +166,14 @@ final class SnowView: NSView {
     private var fogBanks: [(path: CGPath, y: CGFloat, speed: CGFloat, alpha: CGFloat)] = []
     private var time: CGFloat = 0       // seconds since start, for drifting fog
     private var hiddenUntil: CGFloat = 0  // overlay hidden while a Space switch slides the windows around
+    private var slideSeen = -CGFloat.infinity  // when the slide itself was last spotted
 
     /// Space switch: macOS slides the windows but this overlay stays put, so its snow would sit on the old
-    /// windows' outlines for a moment. Hide it for the slide and fade it back in on the new Space.
-    func spaceChanged() {
+    /// windows' outlines for a moment. Hide it for the slide and fade it back in on the new Space, once:
+    /// macOS's own notice comes after the slide, so it only counts when the slide went unnoticed.
+    func spaceChanged(bySystem: Bool = false) {
+        if bySystem && time - slideSeen < 1.5 { return }
+        if !bySystem { slideSeen = time }
         // ponytail: 0.45 s covers the switch animation; Reduce Motion makes it shorter
         hiddenUntil = time + 0.45
         window?.alphaValue = 0
@@ -1193,7 +1197,7 @@ final class App: NSObject, NSApplicationDelegate, CLLocationManagerDelegate {
             if self?.autoWeather == true { self?.locator.requestLocation() }  // the weather may have changed overnight
         }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.overlays.forEach { $0.view.spaceChanged() }
+            self?.overlays.forEach { $0.view.spaceChanged(bySystem: true) }
         }
         // monitor plugged/unplugged or rearranged
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
