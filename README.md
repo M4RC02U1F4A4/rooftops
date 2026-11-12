@@ -1,6 +1,8 @@
 # Rooftops
 
-![Rooftops on a desktop: snow-covered windows, falling snow, and a snowplow lowering the drifts over the Dock](docs/screenshot.png)
+![Rooftops in its four weathers: snow with a snowplow clearing the Dock, rain with lightning and a puddle, sun and clouds melting the snow, fog](docs/screenshot.png)
+
+<sub>AI-generated illustration of the four weather modes; the app's actual drawing is simpler.</sub>
 
 A tiny macOS menu-bar app that brings the weather to your desktop: snow, rain with lightning, sun and
 clouds, or fog, or whatever it's like outside right now. Windows behave like houses: snow piles up on their
