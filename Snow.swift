@@ -164,6 +164,15 @@ final class SnowView: NSView {
     private var clouds: [(x: CGFloat, y: CGFloat, w: CGFloat, path: CGPath)] = []  // sun mode
     private var fogBanks: [(path: CGPath, y: CGFloat, speed: CGFloat, alpha: CGFloat)] = []
     private var time: CGFloat = 0       // seconds since start, for drifting fog
+    private var hiddenUntil: CGFloat = 0  // overlay hidden while a Space switch slides the windows around
+
+    /// Space switch: macOS slides the windows but this overlay stays put, so its snow would sit on the old
+    /// windows' outlines for a moment. Hide it for the slide and fade it back in on the new Space.
+    func spaceChanged() {
+        // ponytail: 0.45 s covers the switch animation; Reduce Motion makes it shorter
+        hiddenUntil = time + 0.45
+        window?.alphaValue = 0
+    }
     private var drops: [Drop] = []
     private var splashes: [(p: CGPoint, v: CGVector, life: CGFloat)] = []
     private var puddle: CGFloat = 0     // water at the bottom of the screen, as an average depth
@@ -448,6 +457,7 @@ final class SnowView: NSView {
     /// Sun mode: clouds (as many as the intensity asks) drift across on a slow breeze; fog just flows.
     private func stepSky(dt: CGFloat) {
         time += dt
+        if let w = window, time >= hiddenUntil, w.alphaValue < 1 { w.alphaValue = min(1, w.alphaValue + dt / 0.35) }
         if weather == .sun {
             let target = Int(intensity * 10)
             if clouds.isEmpty && target > 0 {
@@ -1165,6 +1175,9 @@ final class App: NSObject, NSApplicationDelegate {
 
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.tilt.wake()
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.overlays.forEach { $0.view.spaceChanged() }
         }
         // monitor plugged/unplugged or rearranged
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
