@@ -38,7 +38,9 @@ One Swift file, no dependencies, no Xcode project.
 - **Rain mode**: switch from snow to rain in the menu. Drops fall as fast streaks and splash instead of
   piling up; water runs off the window roofs and drips from their corners, trickles down walls it hits, and
   collects in a puddle at the bottom that stays level with real gravity, so tilting the laptop sends it to the
-  lower side. Rain melts whatever snow is there. In rain mode the blizzard becomes a thunderstorm.
+  lower side. Rain melts whatever snow is there. In rain mode the blizzard becomes a thunderstorm, with lightning
+  every couple of seconds (and the odd strike in very heavy rain): a forked bolt hits the first thing below
+  it, a window roof or the ground, with sparks, and the sky flashes behind the windows.
 - **Multiple displays**: snow on the main screen only, or on all screens. External monitors don't tilt.
 
 ## Requirements

@@ -162,6 +162,8 @@ final class SnowView: NSView {
     private var drops: [Drop] = []
     private var splashes: [(p: CGPoint, v: CGVector, life: CGFloat)] = []
     private var puddle: CGFloat = 0     // water at the bottom of the screen, as an average depth
+    private var bolts: [(trunk: CGPath, branches: CGPath, life: CGFloat)] = []  // lightning on screen
+    private var flash: CGFloat = 0      // sky lit up by the last strike, fading
     private var ledges: [Int: Ledge] = [:]  // keyed by CG window number
     private var parked: [Int: Ledge] = [:]  // snow of windows on another Space or minimized
     private var order: [CGRect] = []                              // window frames, front to back
@@ -355,6 +357,13 @@ final class SnowView: NSView {
             ledges[num]!.water = w
         }
 
+        // lightning: every couple of seconds in a thunderstorm, now and then in very heavy rain
+        // ponytail: 0.4 strikes/s at full storm, up to 0.04/s from heavy rain alone
+        let strikes = stormLevel * 0.4 + max(0, intensity - 0.6) * 0.1
+        if rain && CGFloat.random(in: 0..<1) < strikes * dt { strike() }
+        bolts = bolts.compactMap { b in b.life > dt ? (b.trunk, b.branches, b.life - dt) : nil }
+        flash = max(0, flash - 4 * dt)
+
         // ponytail: the puddle drains ~6%/s and tops out at 30 pt
         puddle = min(30, puddle * (1 - 0.06 * dt))
 
@@ -371,6 +380,42 @@ final class SnowView: NSView {
             }
             ledges[num]!.water += roof * colW / 8
             ledges[num]!.stuck.removeAll { _ in CGFloat.random(in: 0..<1) < dt / 4 }
+        }
+    }
+
+    /// A lightning strike from the sky to the first thing below it: a visible window roof (on its snow) or
+    /// the ground, snow or puddle. Jagged trunk with a few forks, sparks where it hits, and the sky flashes.
+    private func strike() {
+        let x = CGFloat.random(in: bounds.width * 0.05...bounds.width * 0.95)
+        var hit = bounds.maxY - max(surface(at: x), waterLevel(at: x))
+        for (i, w) in order.enumerated() where x >= w.minX && x < w.maxX && !covered(CGPoint(x: x, y: w.minY + 1), before: i) {
+            let snow = ledges.values.first { $0.frame == w }.map { $0.pile.h[min(Int((x - w.minX) / colW), $0.pile.h.count - 1)] } ?? 0
+            hit = min(hit, w.minY - snow)
+        }
+        // midpoint displacement: each halving adds a smaller sideways kink
+        func jag(_ a: CGPoint, _ b: CGPoint, _ spread: CGFloat, _ levels: Int) -> [CGPoint] {
+            var pts = [a, b], s = spread
+            for _ in 0..<levels {
+                var next = [pts[0]]
+                for (p, q) in zip(pts, pts.dropFirst()) {
+                    next += [CGPoint(x: (p.x + q.x) / 2 + .random(in: -s...s), y: (p.y + q.y) / 2 + .random(in: -s...s) * 0.3), q]
+                }
+                pts = next; s *= 0.55
+            }
+            return pts
+        }
+        let trunk = jag(CGPoint(x: x + .random(in: -160...160), y: 0), CGPoint(x: x, y: hit), 90, 7)
+        let t = CGMutablePath(); t.addLines(between: trunk)
+        let forks = CGMutablePath()
+        for _ in 0..<Int.random(in: 1...3) {
+            let from = trunk[Int.random(in: trunk.count / 5...trunk.count * 3 / 5)]
+            let to = CGPoint(x: from.x + .random(in: -140...140), y: min(hit, from.y + .random(in: 80...240)))
+            forks.addLines(between: jag(from, to, 35, 5))
+        }
+        bolts.append((t, forks, 0.4))
+        flash = 1
+        for _ in 0..<14 where splashes.count < 1500 {  // sparks
+            splashes.append((CGPoint(x: x, y: hit), CGVector(dx: .random(in: -220...220), dy: .random(in: -320 ... -60)), .random(in: 0.2...0.45)))
         }
     }
 
@@ -652,6 +697,18 @@ final class SnowView: NSView {
             pool.addLine(to: CGPoint(x: bounds.maxX, y: bounds.maxY)); pool.closeSubpath()
             ctx.setFillColor(CGColor(red: 0.38, green: 0.55, blue: 0.85, alpha: 0.45)); ctx.addPath(pool); ctx.fillPath()
             ctx.setStrokeColor(CGColor(red: 0.85, green: 0.93, blue: 1, alpha: 0.8)); ctx.setLineWidth(1.4); ctx.addPath(surface); ctx.strokePath()
+        }
+        // lightning lights up the sky and strikes, both behind the windows like everything outside
+        if flash > 0 {
+            ctx.setFillColor(CGColor(red: 0.85, green: 0.88, blue: 1, alpha: 0.22 * flash)); ctx.fill(bounds)
+        }
+        for b in bolts where Int(b.life * 40) % 3 != 1 {  // flickers while it lasts
+            for (width, alpha) in [(9.0, 0.12), (4.0, 0.3), (1.8, 1.0)] as [(CGFloat, CGFloat)] {
+                ctx.setStrokeColor(CGColor(red: 0.85, green: 0.9, blue: 1, alpha: alpha))
+                ctx.setLineWidth(width); ctx.setLineJoin(.round)
+                ctx.addPath(b.trunk); ctx.strokePath()
+                ctx.setLineWidth(width * 0.55); ctx.addPath(b.branches); ctx.strokePath()
+            }
         }
         // rain falling behind the windows
         let backRain = CGMutablePath()
