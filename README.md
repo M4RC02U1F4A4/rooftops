@@ -69,16 +69,17 @@ Snow.app/Contents/MacOS/Snow --selftest
 
 The menu is in Italian:
 
-| Item                   | What it does                                                         |
-|------------------------|----------------------------------------------------------------------|
-| Neve / Pioggia         | Snow or rain (remembered)                                            |
-| *Intensità* slider     | How hard it snows or rains; all the way left stops it                |
-| Tormenta di neve / Temporale (⌘T) | Starts a 15 s blizzard (or downpour) with random gusts    |
-| Chiama lo spazzaneve (⌘P) | Sends the snowplow convoy now                                    |
-| Spazzaneve automatico  | Snowplows set off on their own to keep the ground snow low (remembered, on by default) |
-| Tutti gli schermi      | Snow on every display instead of the main one only (remembered)      |
-| Inverti inclinazione   | Flips the tilt direction if the snow slides the wrong way            |
-| Esci (⌘Q)              | Quits and switches the accelerometer back off                        |
+| Section   | Item                      | What it does                                                         |
+|-----------|---------------------------|----------------------------------------------------------------------|
+| Meteo     | Neve / Pioggia            | Snow or rain (remembered)                                            |
+| Intensità | slider                    | How hard it snows or rains; all the way left stops it                |
+| Neve      | Tormenta di neve (⌘T)     | Switches to snow and starts a 15 s blizzard with random gusts        |
+|           | Chiama lo spazzaneve (⌘P) | Sends the snowplow convoy now                                        |
+|           | Spazzaneve automatico     | Snowplows set off on their own to keep the ground snow low (remembered, on by default) |
+| Pioggia   | Temporale (⌘Y)            | Switches to rain and starts a 15 s thunderstorm with gusts and lightning |
+| —         | Tutti gli schermi         | Snow or rain on every display instead of the main one only (remembered) |
+| —         | Inverti inclinazione      | Flips the tilt direction if the snow slides the wrong way            |
+| —         | Esci (⌘Q)                 | Quits and switches the accelerometer back off                        |
 
 ## How it works
 

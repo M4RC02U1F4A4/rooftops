@@ -952,7 +952,7 @@ final class App: NSObject, NSApplicationDelegate {
     var allScreens = UserDefaults.standard.bool(forKey: "allScreens")
     var autoPlow = UserDefaults.standard.object(forKey: "autoPlow") as? Bool ?? true
     var rain = UserDefaults.standard.bool(forKey: "rain")
-    var snowItem: NSMenuItem!, rainItem: NSMenuItem!, stormItem: NSMenuItem!
+    var snowItem: NSMenuItem!, rainItem: NSMenuItem!
 
     /// One transparent click-through overlay per screen (or just the menu-bar one). Screens that keep the
     /// same frame keep their overlay and its snow; only added, moved or resized screens start fresh.
@@ -988,24 +988,26 @@ final class App: NSObject, NSApplicationDelegate {
 
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let menu = NSMenu()
+        menu.addItem(.sectionHeader(title: "Meteo"))
         snowItem = menu.addItem(withTitle: "Neve", action: #selector(chooseWeather(_:)), keyEquivalent: "")
         rainItem = menu.addItem(withTitle: "Pioggia", action: #selector(chooseWeather(_:)), keyEquivalent: "")
         snowItem.target = self; rainItem.target = self
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Intensità", action: nil, keyEquivalent: "")
+        menu.addItem(.sectionHeader(title: "Intensità"))
         let slider = NSSlider(value: Double(intensity), minValue: 0, maxValue: 1, target: self, action: #selector(level(_:)))
         slider.frame = CGRect(x: 18, y: 4, width: 180, height: 22)
         let holder = NSView(frame: CGRect(x: 0, y: 0, width: 216, height: 30))
         holder.addSubview(slider)
         let sliderItem = NSMenuItem(); sliderItem.view = holder
         menu.addItem(sliderItem)
-        menu.addItem(.separator())
-        stormItem = menu.addItem(withTitle: "Tormenta di neve", action: #selector(blizzard), keyEquivalent: "t")
-        stormItem.target = self
+        menu.addItem(.sectionHeader(title: "Neve"))
+        menu.addItem(withTitle: "Tormenta di neve", action: #selector(blizzard), keyEquivalent: "t").target = self
         menu.addItem(withTitle: "Chiama lo spazzaneve", action: #selector(plow), keyEquivalent: "p").target = self
         let auto = menu.addItem(withTitle: "Spazzaneve automatico", action: #selector(toggleAutoPlow(_:)), keyEquivalent: "")
         auto.target = self
         auto.state = autoPlow ? .on : .off
+        menu.addItem(.sectionHeader(title: "Pioggia"))
+        menu.addItem(withTitle: "Temporale", action: #selector(thunderstorm), keyEquivalent: "y").target = self
+        menu.addItem(.separator())
         let screens = menu.addItem(withTitle: "Tutti gli schermi", action: #selector(toggleScreens(_:)), keyEquivalent: "")
         screens.target = self
         screens.state = allScreens ? .on : .off
@@ -1032,13 +1034,16 @@ final class App: NSObject, NSApplicationDelegate {
 
     @objc func level(_ s: NSSlider) { intensity = CGFloat(s.doubleValue); overlays.forEach { $0.view.intensity = intensity } }
     @objc func plow() { overlays.forEach { $0.view.callPlow() } }
-    @objc func blizzard() { overlays.forEach { $0.view.startStorm() } }
+    // each storm switches to its own weather first, so both work from either mode
+    @objc func blizzard() { setWeather(rain: false); overlays.forEach { $0.view.startStorm() } }
+    @objc func thunderstorm() { setWeather(rain: true); overlays.forEach { $0.view.startStorm() } }
     @objc func invert(_ m: NSMenuItem) {
         invertTilt.toggle(); m.state = invertTilt ? .on : .off
         overlays.forEach { $0.view.invertTilt = invertTilt }
     }
-    @objc func chooseWeather(_ m: NSMenuItem) {
-        rain = m === rainItem
+    @objc func chooseWeather(_ m: NSMenuItem) { setWeather(rain: m === rainItem) }
+    func setWeather(rain: Bool) {
+        self.rain = rain
         UserDefaults.standard.set(rain, forKey: "rain")
         overlays.forEach { $0.view.rain = rain }
         showWeather()
@@ -1047,7 +1052,6 @@ final class App: NSObject, NSApplicationDelegate {
     func showWeather() {
         snowItem.state = rain ? .off : .on
         rainItem.state = rain ? .on : .off
-        stormItem.title = rain ? "Temporale" : "Tormenta di neve"
         item.button?.image = NSImage(systemSymbolName: rain ? "cloud.rain" : "snowflake", accessibilityDescription: rain ? "Pioggia" : "Neve")
     }
     @objc func toggleAutoPlow(_ m: NSMenuItem) {
