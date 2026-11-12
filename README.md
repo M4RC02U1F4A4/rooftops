@@ -81,7 +81,7 @@ The menu is in Italian:
 |-----------|---------------------------|----------------------------------------------------------------------|
 | Meteo     | Automatico                | Follows the weather where you are (remembered); the mode it picked is marked with a dash |
 |           | Neve / Pioggia / Sole / Nebbia | Snow, rain, sun and clouds, or fog (remembered; leaves automatic mode) |
-| Intensità | slider                    | How hard it snows or rains, how cloudy the sunny sky is, how thick the fog is |
+| Intensità | slider                    | How hard it snows or rains, how cloudy the sunny sky is, how thick the fog is (set by the real weather, and greyed out, in automatic mode) |
 | Neve      | Tormenta di neve (⌘T)     | Switches to snow and starts a 15 s blizzard with random gusts        |
 |           | Chiama lo spazzaneve (⌘P) | Sends the snowplow convoy now                                        |
 |           | Spazzaneve automatico     | Snowplows set off on their own to keep the ground snow low (remembered, on by default) |

@@ -1115,7 +1115,7 @@ final class App: NSObject, NSApplicationDelegate, CLLocationManagerDelegate {
         ?? (UserDefaults.standard.bool(forKey: "rain") ? .rain : .snow)
     var weatherItems: [(SnowView.Weather, NSMenuItem)] = []
     var autoWeather = UserDefaults.standard.bool(forKey: "autoWeather")  // follow the weather where you are
-    var autoItem: NSMenuItem!, slider: NSSlider!
+    var autoItem: NSMenuItem!, slider: NSSlider!, intensityHeader: NSMenuItem!
     let locator = CLLocationManager()
     var autoTimer: Timer?
 
@@ -1162,7 +1162,8 @@ final class App: NSObject, NSApplicationDelegate, CLLocationManagerDelegate {
             it.target = self
             weatherItems.append((w, it))
         }
-        menu.addItem(.sectionHeader(title: "Intensità"))
+        intensityHeader = .sectionHeader(title: "Intensità")
+        menu.addItem(intensityHeader)
         slider = NSSlider(value: Double(intensity), minValue: 0, maxValue: 1, target: self, action: #selector(level(_:)))
         slider.frame = CGRect(x: 18, y: 4, width: 180, height: 22)
         let holder = NSView(frame: CGRect(x: 0, y: 0, width: 216, height: 30))
@@ -1226,6 +1227,9 @@ final class App: NSObject, NSApplicationDelegate, CLLocationManagerDelegate {
     /// Menu ticks and the menu-bar icon follow the weather; in automatic mode the one picked for you gets a dash.
     func showWeather() {
         autoItem.state = autoWeather ? .on : .off
+        // in automatic mode the strength comes from the real weather too
+        slider.isEnabled = !autoWeather
+        intensityHeader.title = autoWeather ? "Intensità (automatica)" : "Intensità"
         for (w, it) in weatherItems { it.state = w != weather ? .off : autoWeather ? .mixed : .on }
         let icon = switch weather {
         case .snow: "snowflake"
