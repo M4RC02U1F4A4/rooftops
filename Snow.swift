@@ -221,7 +221,7 @@ final class SnowView: NSView {
     static let heapMax: CGFloat = .pi / 4 * bladeH * 80  // a blade-high bank 160pt long; more is thrown aside
 
     // Called ~10 Hz: track the windows snow can sit on.
-    func refreshWindows() {
+    func refreshWindows(dt: CGFloat) {
         let me = ProcessInfo.processInfo.processIdentifier
         let menuBar = (window?.screen).map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 40  // notch-aware
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
@@ -238,18 +238,34 @@ final class SnowView: NSView {
             order.append(r)
             seen[num] = r
         }
-        var moved: [Ledge] = []
+        var moved: [(Ledge, CGRect?)] = []  // snow to shake off, and where that window is now
         for (num, l) in ledges where seen[num] != l.frame {
             ledges[num] = nil
             // gone from view but still alive (other Space, minimized): keep its snow for when it's back
             if seen[num] == nil && windowExists(num) { parked[num] = l; continue }
-            moved.append(l)
+            if let nf = seen[num], nf.size == l.frame.size {
+                // dragged: the roof carries its snow along like a tray; a fast move shakes some of it off
+                // ponytail: nothing falls below 300 pt/s; at 1800 pt/s about half of it per tenth of a second
+                let speed = hypot(nf.minX - l.frame.minX, nf.minY - l.frame.minY) / dt
+                let jolt = min(0.5, max(0, (speed - 300) / 3000) * dt / 0.1)
+                var carried = l, shaken = Ledge(frame: l.frame, pile: l.pile)
+                carried.frame = nf
+                carried.pile.cap = max(0, min(50, nf.minY - menuBar))
+                for c in carried.pile.h.indices {
+                    shaken.pile.h[c] = carried.pile.h[c] * jolt
+                    carried.pile.h[c] -= shaken.pile.h[c]
+                }
+                ledges[num] = carried
+                moved.append((shaken, nf))  // what shook off falls from where the roof just was
+                continue
+            }
+            moved.append((l, seen[num]))
         }
         for (num, r) in seen where ledges[num] == nil {
             if let p = parked.removeValue(forKey: num), p.frame == r { ledges[num] = p; continue }
             ledges[num] = Ledge(frame: r, pile: Pile(width: r.width, cap: max(0, min(50, r.minY - menuBar))))  // never pile over the menu bar
         }
-        moved.forEach(spill)  // window moved, resized or closed: shake the snow off (after the new roofs exist)
+        for (l, now) in moved { spill(l, now: now) }  // moved, resized or closed: shake the snow off (after the new roofs exist)
         if frameCount % 300 == 0 { parked = parked.filter { windowExists($0.key) } }  // forget windows closed meanwhile
     }
 
@@ -261,7 +277,8 @@ final class SnowView: NSView {
         return !found.isEmpty
     }
 
-    private func spill(_ l: Ledge) {
+    /// `now` is where that window is now, if it's still open: snow can only land back on its own roof.
+    private func spill(_ l: Ledge, now: CGRect?) {
         let r = l.frame
         for s in l.stuck {
             flakes.append(Flake(p: CGPoint(x: r.minX + s.p.x, y: r.minY + s.p.y), r: s.r, phase: 0, heavy: true))
@@ -276,8 +293,9 @@ final class SnowView: NSView {
             while carry >= per {
                 carry -= per
                 let p = CGPoint(x: r.minX + (CGFloat(i) + .random(in: 0...1)) * colW, y: r.minY - .random(in: 0...h))
-                // a window is now under this spot (moved up or sideways): the snow stays on its new roof
-                if let w = order.first(where: { $0.contains(p) }) { settle(on: w, x: p.x, r: fr); continue }
+                // the window moved up or sideways under this spot: the snow stays on its new roof; inside any other
+                // window it's simply behind that one (never teleported onto someone else's roof)
+                if let w = order.first(where: { $0.contains(p) }) { if w == now { settle(on: w, x: p.x, r: fr) }; continue }
                 flakes.append(Flake(p: p, r: fr, phase: 0, heavy: true, vy: .random(in: 0...40)))
             }
         }
@@ -486,17 +504,13 @@ final class SnowView: NSView {
             }
         }
         for c in clouds {
+            // shaded from a bright top to a greyer base, opaque so a cloud in front covers the one behind
             ctx.saveGState()
-            ctx.translateBy(x: c.x, y: c.y + 5)
-            ctx.setFillColor(CGColor(red: 0.45, green: 0.5, blue: 0.6, alpha: 0.18)); ctx.addPath(c.path); ctx.fillPath()  // soft underside
-            ctx.translateBy(x: 0, y: -5)
-            // shaded from a bright top to a greyer base, a little see-through
-            ctx.saveGState()
+            ctx.translateBy(x: c.x, y: c.y)
             ctx.addPath(c.path); ctx.clip()
-            let shade = CGGradient(colorsSpace: nil, colors: [CGColor(gray: 1, alpha: 0.9), CGColor(red: 0.82, green: 0.85, blue: 0.9, alpha: 0.8)] as CFArray,
+            let shade = CGGradient(colorsSpace: nil, colors: [CGColor(gray: 1, alpha: 1), CGColor(red: 0.82, green: 0.85, blue: 0.9, alpha: 1)] as CFArray,
                                    locations: [0, 1])!
             ctx.drawLinearGradient(shade, start: .zero, end: CGPoint(x: 0, y: c.w * 0.32), options: [])
-            ctx.restoreGState()
             ctx.restoreGState()
         }
     }
@@ -584,8 +598,8 @@ final class SnowView: NSView {
 
     func step(dt: CGFloat) {
         frameCount += 1
-        if frameCount % 3 == 0 {
-            refreshWindows()
+        do {  // every frame: the snow's clip follows windows being dragged without lagging behind
+            refreshWindows(dt: dt)
             // one snowplow sets off by itself once a quarter of the screen width has snow above half the Dock
             // (one lone drift isn't enough) and lowers it all to half that level in a single pass; if that
             // much builds up again where it already passed, another truck follows
@@ -670,7 +684,8 @@ final class SnowView: NSView {
             // windows are solid, like a house: a flake that hits a side wall loses its sideways push and slides
             // down along it; anything else inside a window (full roof, hidden roof) is gone, never drawn over an app
             if !landed, !f.behind, let w = order.first(where: { $0.contains(f.p) }), w.contains(old) {
-                settle(on: w, x: f.p.x, r: f.r)  // the window was dragged onto it: it ends up on the roof
+                // the window was dragged onto it: right at the roof it lands there, deeper it's just behind the window
+                if f.p.y - w.minY < 30 { settle(on: w, x: f.p.x, r: f.r) }
                 landed = true
             }
             if !landed, !f.behind, let w = order.first(where: { $0.contains(f.p) }) {
