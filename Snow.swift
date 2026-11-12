@@ -158,7 +158,12 @@ final class SnowView: NSView {
         var wall: CGFloat? = nil        // x of the window wall it runs down
         var wallEnd: CGFloat = 0        // ... until here, the bottom of that window
     }
-    var rain = false                    // rain instead of snow
+    enum Weather: String { case snow, rain, sun, fog }
+    var weather = Weather.snow
+    var rain: Bool { weather == .rain }
+    private var clouds: [(x: CGFloat, y: CGFloat, w: CGFloat, path: CGPath)] = []  // sun mode
+    private var fogBanks: [(path: CGPath, y: CGFloat, speed: CGFloat, alpha: CGFloat)] = []
+    private var time: CGFloat = 0       // seconds since start, for drifting fog
     private var drops: [Drop] = []
     private var splashes: [(p: CGPoint, v: CGVector, life: CGFloat)] = []
     private var puddle: CGFloat = 0     // water at the bottom of the screen, as an average depth
@@ -367,9 +372,12 @@ final class SnowView: NSView {
         // ponytail: the puddle drains ~6%/s and tops out at 30 pt
         puddle = min(30, puddle * (1 - 0.06 * dt))
 
-        // rain melts the snow: roofs shed it as dripping water, the ground's runs into the puddle
-        guard rain else { return }
-        let melt = (0.1 + 0.3 * intensity + 0.4 * stormLevel) * dt
+        // rain and sun melt the snow: roofs shed it as dripping water, the ground's runs into the puddle;
+        // the sun also dries the puddle up. Clouds and night slow the sun down.
+        let sun = weather == .sun ? daylight() * (1 - 0.7 * intensity) : 0
+        puddle *= 1 - 0.12 * sun * dt
+        guard rain || sun > 0 else { return }
+        let melt = (rain ? 0.1 + 0.3 * intensity + 0.4 * stormLevel : 0.6 * sun) * dt
         var melted: CGFloat = 0
         for c in ground.h.indices where ground.h[c] > 0 { let m = min(ground.h[c], melt); ground.h[c] -= m; melted += m }
         puddle += melted * colW / bounds.width * 0.5
@@ -416,6 +424,107 @@ final class SnowView: NSView {
         flash = 1
         for _ in 0..<14 where splashes.count < 1500 {  // sparks
             splashes.append((CGPoint(x: x, y: hit), CGVector(dx: .random(in: -220...220), dy: .random(in: -320 ... -60)), .random(in: 0.2...0.45)))
+        }
+    }
+
+    /// Sun mode: clouds (as many as the intensity asks) drift across on a slow breeze; fog just flows.
+    private func stepSky(dt: CGFloat) {
+        time += dt
+        if weather == .sun {
+            let target = Int(intensity * 10)
+            if clouds.isEmpty && target > 0 {
+                for _ in 0..<target { clouds.append(makeCloud(x: .random(in: -150...bounds.width))) }
+            } else if clouds.count < target && CGFloat.random(in: 0..<1) < 0.25 * dt {
+                clouds.append(makeCloud(x: -400))
+            }
+        }
+        for i in clouds.indices { clouds[i].x += (8 + clouds[i].w * 0.02 + wind.dx * 0.2) * dt }
+        clouds.removeAll { $0.x > bounds.width + 20 }  // leaving sun mode, they just drift away
+    }
+
+    /// A cloud: a flat, rounded base with a few puffs on top, as a path at the origin.
+    private func makeCloud(x: CGFloat) -> (x: CGFloat, y: CGFloat, w: CGFloat, path: CGPath) {
+        let w = CGFloat.random(in: 160...380), h = w * 0.32
+        let p = CGMutablePath()
+        p.addRoundedRect(in: CGRect(x: 0, y: h * 0.55, width: w, height: h * 0.45), cornerWidth: h * 0.22, cornerHeight: h * 0.22)
+        for _ in 0..<Int.random(in: 3...5) {
+            let r = CGFloat.random(in: h * 0.3...h * 0.6), cx = CGFloat.random(in: r...(w - r))
+            p.addEllipse(in: CGRect(x: cx - r, y: h * 0.6 - r, width: 2 * r, height: 2 * r))
+        }
+        return (x == -400 ? -w - 20 : x, .random(in: 45...bounds.height * 0.3), w, p)
+    }
+
+    /// Where the sun (or, at night, the moon) is along its arc, 0 at rise to 1 at set, from the local clock:
+    /// the sun from 6:00 to 20:00, the moon the rest of the night.
+    private func skyArc() -> (t: CGFloat, day: Bool) {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        let h = CGFloat(c.hour ?? 12) + CGFloat(c.minute ?? 0) / 60
+        return (6...20).contains(h) ? ((h - 6) / 14, true) : ((h - 20 + (h < 6 ? 24 : 0)) / 10, false)
+    }
+    /// 0 at night, 1 at midday.
+    private func daylight() -> CGFloat {
+        let a = skyArc()
+        return a.day ? sin(.pi * a.t) : 0
+    }
+
+    private func drawSky(_ ctx: CGContext) {
+        if weather == .sun {
+            let a = skyArc()
+            let c = CGPoint(x: bounds.width * (0.08 + 0.84 * a.t), y: 70 + (1 - sin(.pi * a.t)) * bounds.height * 0.3)
+            let hidden = clouds.contains { CGRect(x: $0.x, y: $0.y, width: $0.w, height: $0.w * 0.32).insetBy(dx: 12, dy: 6).contains(c) }
+            let glow: CGFloat = hidden ? 0.35 : 1
+            let (core, halo, r): (CGColor, CGColor, CGFloat) = a.day
+                ? (CGColor(red: 1, green: 0.95, blue: 0.72, alpha: 1), CGColor(red: 1, green: 0.88, blue: 0.55, alpha: 0.55 * glow), 34)
+                : (CGColor(red: 0.93, green: 0.94, blue: 0.98, alpha: 1), CGColor(red: 0.8, green: 0.85, blue: 1, alpha: 0.25 * glow), 24)
+            let fade = CGGradient(colorsSpace: nil, colors: [halo, halo.copy(alpha: 0)!] as CFArray, locations: [0, 1])!
+            ctx.drawRadialGradient(fade, startCenter: c, startRadius: 0, endCenter: c, endRadius: r * (a.day ? 5 : 3), options: [])
+            ctx.setFillColor(core); ctx.fillEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
+            if !a.day {  // a couple of craters
+                ctx.setFillColor(CGColor(gray: 0.5, alpha: 0.12))
+                ctx.fillEllipse(in: CGRect(x: c.x - 10, y: c.y - 8, width: 9, height: 9))
+                ctx.fillEllipse(in: CGRect(x: c.x + 4, y: c.y + 3, width: 6, height: 6))
+            }
+        }
+        for c in clouds {
+            ctx.saveGState()
+            ctx.translateBy(x: c.x, y: c.y + 5)
+            ctx.setFillColor(CGColor(red: 0.45, green: 0.5, blue: 0.6, alpha: 0.18)); ctx.addPath(c.path); ctx.fillPath()  // soft underside
+            ctx.translateBy(x: 0, y: -5)
+            // shaded from a bright top to a greyer base, a little see-through
+            ctx.saveGState()
+            ctx.addPath(c.path); ctx.clip()
+            let shade = CGGradient(colorsSpace: nil, colors: [CGColor(gray: 1, alpha: 0.9), CGColor(red: 0.82, green: 0.85, blue: 0.9, alpha: 0.8)] as CFArray,
+                                   locations: [0, 1])!
+            ctx.drawLinearGradient(shade, start: .zero, end: CGPoint(x: 0, y: c.w * 0.32), options: [])
+            ctx.restoreGState()
+            ctx.restoreGState()
+        }
+    }
+
+    /// Fog: a haze that thickens toward the ground plus soft banks flowing past at different speeds.
+    private func drawFog(_ ctx: CGContext) {
+        guard weather == .fog, intensity > 0 else { return }
+        if fogBanks.isEmpty {
+            fogBanks = [(0.82, 9.0, 0.16), (0.62, 15.0, 0.12), (0.42, 6.0, 0.08)].map { y, speed, alpha in
+                let p = CGMutablePath()
+                for i in 0..<14 {
+                    let w = CGFloat.random(in: 260...480), h = CGFloat.random(in: 70...150)
+                    p.addEllipse(in: CGRect(x: CGFloat(i) * bounds.width / 14 - w / 2, y: -h / 2, width: w, height: h))
+                }
+                return (p, bounds.height * y, speed, alpha)
+            }
+        }
+        let haze = CGGradient(colorsSpace: nil, colors: [CGColor(gray: 0.85, alpha: 0), CGColor(gray: 0.85, alpha: 0.5 * intensity)] as CFArray,
+                              locations: [0, 1])!
+        ctx.drawLinearGradient(haze, start: CGPoint(x: 0, y: bounds.height * 0.25), end: CGPoint(x: 0, y: bounds.maxY), options: [])
+        for b in fogBanks {
+            let off = (time * b.speed).truncatingRemainder(dividingBy: bounds.width)
+            for dx in [off - bounds.width, off] {  // tiles seamlessly as it scrolls
+                ctx.saveGState()
+                ctx.translateBy(x: dx, y: b.y)
+                ctx.setFillColor(CGColor(gray: 0.9, alpha: b.alpha * intensity)); ctx.addPath(b.path); ctx.fillPath()
+                ctx.restoreGState()
+            }
         }
     }
 
@@ -516,7 +625,7 @@ final class SnowView: NSView {
                                   v: CGVector(dx: g * s, dy: gy * s), s: s, behind: CGFloat.random(in: 0..<1) < 0.3))
             }
         }
-        var n = rain ? 0 : howMany(intensity * intensity * 400 + stormLevel * 2000, dt)  // flakes per second
+        var n = weather != .snow ? 0 : howMany(intensity * intensity * 400 + stormLevel * 2000, dt)  // flakes per second
         n = min(n, max(0, (stormLevel > 0.05 ? 5500 : 4000) - flakes.count))
         let fromSide = abs(wind.dx) / (abs(wind.dx) + 80)  // strong wind blows snow in from the upwind edge
         for _ in 0..<n {
@@ -592,6 +701,7 @@ final class SnowView: NSView {
         }
 
         stepRain(dt: dt, g: g, gy: gy)
+        stepSky(dt: dt)
 
         // snow plastered on walls creeps down slowly and now and then a bit lets go and drops
         for (num, l) in ledges where !l.stuck.isEmpty {
@@ -674,6 +784,12 @@ final class SnowView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         // ponytail: one CPU path redrawn per frame; move to CAShapeLayer/Metal if CPU matters
 
+        // the sky, behind the windows
+        ctx.saveGState()
+        clipOut(ctx, order[...])
+        drawSky(ctx)
+        ctx.restoreGState()
+
         // snow sits behind windows: clipped exactly at their edges, never hidden column by column
         for l in ledges.values {
             ctx.saveGState()
@@ -698,6 +814,7 @@ final class SnowView: NSView {
             ctx.setFillColor(CGColor(red: 0.38, green: 0.55, blue: 0.85, alpha: 0.45)); ctx.addPath(pool); ctx.fillPath()
             ctx.setStrokeColor(CGColor(red: 0.85, green: 0.93, blue: 1, alpha: 0.8)); ctx.setLineWidth(1.4); ctx.addPath(surface); ctx.strokePath()
         }
+        drawFog(ctx)
         // lightning lights up the sky and strikes, both behind the windows like everything outside
         if flash > 0 {
             ctx.setFillColor(CGColor(red: 0.85, green: 0.88, blue: 1, alpha: 0.22 * flash)); ctx.fill(bounds)
@@ -951,8 +1068,9 @@ final class App: NSObject, NSApplicationDelegate {
     var intensity: CGFloat = 0.4, invertTilt = false
     var allScreens = UserDefaults.standard.bool(forKey: "allScreens")
     var autoPlow = UserDefaults.standard.object(forKey: "autoPlow") as? Bool ?? true
-    var rain = UserDefaults.standard.bool(forKey: "rain")
-    var snowItem: NSMenuItem!, rainItem: NSMenuItem!
+    var weather = SnowView.Weather(rawValue: UserDefaults.standard.string(forKey: "weather") ?? "")
+        ?? (UserDefaults.standard.bool(forKey: "rain") ? .rain : .snow)
+    var weatherItems: [(SnowView.Weather, NSMenuItem)] = []
 
     /// One transparent click-through overlay per screen (or just the menu-bar one). Screens that keep the
     /// same frame keep their overlay and its snow; only added, moved or resized screens start fresh.
@@ -973,7 +1091,7 @@ final class App: NSObject, NSApplicationDelegate {
             v.intensity = intensity
             v.invertTilt = invertTilt
             v.autoPlow = autoPlow
-            v.rain = rain
+            v.weather = weather
             w.contentView = v
             w.setFrame(screen.frame, display: false)
             w.orderFrontRegardless()
@@ -989,9 +1107,11 @@ final class App: NSObject, NSApplicationDelegate {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let menu = NSMenu()
         menu.addItem(.sectionHeader(title: "Meteo"))
-        snowItem = menu.addItem(withTitle: "Neve", action: #selector(chooseWeather(_:)), keyEquivalent: "")
-        rainItem = menu.addItem(withTitle: "Pioggia", action: #selector(chooseWeather(_:)), keyEquivalent: "")
-        snowItem.target = self; rainItem.target = self
+        for (w, title) in [(SnowView.Weather.snow, "Neve"), (.rain, "Pioggia"), (.sun, "Sole"), (.fog, "Nebbia")] {
+            let it = menu.addItem(withTitle: title, action: #selector(chooseWeather(_:)), keyEquivalent: "")
+            it.target = self
+            weatherItems.append((w, it))
+        }
         menu.addItem(.sectionHeader(title: "Intensità"))
         let slider = NSSlider(value: Double(intensity), minValue: 0, maxValue: 1, target: self, action: #selector(level(_:)))
         slider.frame = CGRect(x: 18, y: 4, width: 180, height: 22)
@@ -1032,27 +1152,32 @@ final class App: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ n: Notification) { tilt.sleep() }
 
-    @objc func level(_ s: NSSlider) { intensity = CGFloat(s.doubleValue); overlays.forEach { $0.view.intensity = intensity } }
+    @objc func level(_ s: NSSlider) { intensity = CGFloat(s.doubleValue); overlays.forEach { $0.view.intensity = intensity }; showWeather() }
     @objc func plow() { overlays.forEach { $0.view.callPlow() } }
     // each storm switches to its own weather first, so both work from either mode
-    @objc func blizzard() { setWeather(rain: false); overlays.forEach { $0.view.startStorm() } }
-    @objc func thunderstorm() { setWeather(rain: true); overlays.forEach { $0.view.startStorm() } }
+    @objc func blizzard() { setWeather(.snow); overlays.forEach { $0.view.startStorm() } }
+    @objc func thunderstorm() { setWeather(.rain); overlays.forEach { $0.view.startStorm() } }
     @objc func invert(_ m: NSMenuItem) {
         invertTilt.toggle(); m.state = invertTilt ? .on : .off
         overlays.forEach { $0.view.invertTilt = invertTilt }
     }
-    @objc func chooseWeather(_ m: NSMenuItem) { setWeather(rain: m === rainItem) }
-    func setWeather(rain: Bool) {
-        self.rain = rain
-        UserDefaults.standard.set(rain, forKey: "rain")
-        overlays.forEach { $0.view.rain = rain }
+    @objc func chooseWeather(_ m: NSMenuItem) { setWeather(weatherItems.first { $0.1 === m }!.0) }
+    func setWeather(_ w: SnowView.Weather) {
+        weather = w
+        UserDefaults.standard.set(w.rawValue, forKey: "weather")
+        overlays.forEach { $0.view.weather = w }
         showWeather()
     }
     /// Menu ticks, the storm's name and the menu-bar icon follow the chosen weather.
     func showWeather() {
-        snowItem.state = rain ? .off : .on
-        rainItem.state = rain ? .on : .off
-        item.button?.image = NSImage(systemSymbolName: rain ? "cloud.rain" : "snowflake", accessibilityDescription: rain ? "Pioggia" : "Neve")
+        for (w, it) in weatherItems { it.state = w == weather ? .on : .off }
+        let icon = switch weather {
+        case .snow: "snowflake"
+        case .rain: "cloud.rain"
+        case .sun: intensity > 0.5 ? "cloud.sun" : "sun.max"
+        case .fog: "cloud.fog"
+        }
+        item.button?.image = NSImage(systemSymbolName: icon, accessibilityDescription: weatherItems.first { $0.0 == weather }?.1.title)
     }
     @objc func toggleAutoPlow(_ m: NSMenuItem) {
         autoPlow.toggle(); m.state = autoPlow ? .on : .off

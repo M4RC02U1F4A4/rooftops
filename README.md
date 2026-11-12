@@ -41,6 +41,11 @@ One Swift file, no dependencies, no Xcode project.
   lower side. Rain melts whatever snow is there. In rain mode the blizzard becomes a thunderstorm, with lightning
   every couple of seconds; heavy rain brings lightning too, more often the harder it rains: a forked bolt hits the first thing below
   it, a window roof or the ground, with sparks, and the sky flashes behind the windows.
+- **Sun mode**: the sun crosses the sky with the local time (the moon at night), clouds drift by on a breeze,
+  and the slider sets how cloudy it is. Sunshine melts the snow (less under clouds, hardly at night): roofs drip
+  and the puddle dries up.
+- **Fog mode**: banks of fog flow past at different speeds over a haze that thickens toward the ground; the
+  slider sets how thick it is.
 - **Multiple displays**: snow on the main screen only, or on all screens. External monitors don't tilt.
 
 ## Requirements
@@ -57,7 +62,7 @@ One Swift file, no dependencies, no Xcode project.
 open Snow.app
 ```
 
-The app has no Dock icon: look for the snowflake (or the rain cloud, in rain mode) in the menu bar.
+The app has no Dock icon: look for the snowflake in the menu bar (it follows the weather: rain cloud, sun, fog).
 
 To check the snow physics (piles, avalanches, slab slides):
 
@@ -71,8 +76,8 @@ The menu is in Italian:
 
 | Section   | Item                      | What it does                                                         |
 |-----------|---------------------------|----------------------------------------------------------------------|
-| Meteo     | Neve / Pioggia            | Snow or rain (remembered)                                            |
-| Intensità | slider                    | How hard it snows or rains; all the way left stops it                |
+| Meteo     | Neve / Pioggia / Sole / Nebbia | Snow, rain, sun and clouds, or fog (remembered)                 |
+| Intensità | slider                    | How hard it snows or rains, how cloudy the sunny sky is, how thick the fog is |
 | Neve      | Tormenta di neve (⌘T)     | Switches to snow and starts a 15 s blizzard with random gusts        |
 |           | Chiama lo spazzaneve (⌘P) | Sends the snowplow convoy now                                        |
 |           | Spazzaneve automatico     | Snowplows set off on their own to keep the ground snow low (remembered, on by default) |
