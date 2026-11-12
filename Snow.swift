@@ -147,7 +147,21 @@ final class SnowView: NSView {
         var frame: CGRect
         var pile: Pile
         var stuck: [(p: CGPoint, r: CGFloat)] = []  // on the walls, relative to the frame origin
+        var water: CGFloat = 0                       // rain on the roof waiting to drip off its edges (in drops)
     }
+
+    /// A raindrop: a fast streak. `wall` is set while it trickles down a window side.
+    struct Drop {
+        var p: CGPoint, v: CGVector
+        var s: CGFloat                  // its terminal speed
+        var behind = false              // falls behind the windows, like part of the snow
+        var wall: CGFloat? = nil        // x of the window wall it runs down
+        var wallEnd: CGFloat = 0        // ... until here, the bottom of that window
+    }
+    var rain = false                    // rain instead of snow
+    private var drops: [Drop] = []
+    private var splashes: [(p: CGPoint, v: CGVector, life: CGFloat)] = []
+    private var puddle: CGFloat = 0     // water at the bottom of the screen, as an average depth
     private var ledges: [Int: Ledge] = [:]  // keyed by CG window number
     private var parked: [Int: Ledge] = [:]  // snow of windows on another Space or minimized
     private var order: [CGRect] = []                              // window frames, front to back
@@ -262,6 +276,118 @@ final class SnowView: NSView {
         }
     }
 
+    /// Rain: streaks that splash instead of piling up. Roofs shed their water off the edges, side walls get
+    /// rivulets, the water collects in a puddle at the bottom that stays level with real gravity, and the
+    /// snow that's there melts away.
+    private func stepRain(dt: CGFloat, g: CGFloat, gy: CGFloat) {
+        let ledgeList = ledges.map { (num: $0.key, frame: $0.value.frame, idx: order.firstIndex(of: $0.value.frame) ?? 0) }
+        func splash(_ p: CGPoint) {
+            guard splashes.count < 1500 else { return }
+            for _ in 0..<Int.random(in: 1...3) {
+                splashes.append((p, CGVector(dx: .random(in: -70...70), dy: .random(in: -150 ... -50)), .random(in: 0.15...0.3)))
+            }
+        }
+        var i = 0
+        while i < drops.count {
+            var d = drops[i]
+            let old = d.p
+            var done = false
+            if let wx = d.wall {
+                d.p.x = wx
+                d.p.y += 160 * dt  // trickles down the wall, then drips off the bottom corner
+                if d.p.y >= d.wallEnd { d.wall = nil; d.v = CGVector(dx: 0, dy: 40) }
+            } else {
+                // drops barely feel the wind; drips leaving a roof start slow and speed up
+                let target = CGVector(dx: g * d.s + wind.dx * 0.4 * shelter(d.p), dy: gy * d.s + wind.dy * 0.3)
+                let k = min(1, 5 * dt)
+                d.v.dx += (target.dx - d.v.dx) * k
+                d.v.dy += (target.dy - d.v.dy) * k
+                d.p.x += d.v.dx * dt
+                d.p.y += d.v.dy * dt
+                if !d.behind {
+                    for l in ledgeList where d.p.x >= l.frame.minX && d.p.x < l.frame.maxX {
+                        let c = min(Int((d.p.x - l.frame.minX) / colW), ledges[l.num]!.pile.h.count - 1)
+                        let top = l.frame.minY - ledges[l.num]!.pile.h[c]
+                        if old.y <= l.frame.minY && d.p.y >= top && !covered(CGPoint(x: d.p.x, y: l.frame.minY + 1), before: l.idx) {
+                            splash(CGPoint(x: d.p.x, y: top))
+                            // most of the water runs off the front and back of the roof, out of this side view;
+                            // only some reaches the ends and drips from the corners
+                            ledges[l.num]!.water += 0.12
+                            done = true
+                            break
+                        }
+                    }
+                    if !done, let w = order.first(where: { $0.contains(d.p) }) {
+                        let left = old.y > w.minY && old.x <= w.minX, right = old.y > w.minY && old.x >= w.maxX
+                        if left || right { d.wall = left ? w.minX - 1 : w.maxX + 1; d.wallEnd = w.maxY; d.p.x = d.wall! }
+                        else { done = true }  // under a roof hidden by another window
+                    }
+                }
+            }
+            let surface = max(surface(at: d.p.x), waterLevel(at: d.p.x))
+            if !done && d.p.y >= bounds.maxY - surface {
+                splash(CGPoint(x: d.p.x, y: bounds.maxY - surface))
+                puddle += 0.0015
+                done = true
+            }
+            if done || d.p.y > bounds.maxY + 20 || d.p.x < -bounds.width * 0.5 || d.p.x > bounds.width * 1.5 {
+                drops.swapAt(i, drops.count - 1); drops.removeLast()
+            } else {
+                drops[i] = d; i += 1
+            }
+        }
+        splashes = splashes.compactMap { s in
+            var s = s
+            s.p.x += s.v.dx * dt; s.p.y += s.v.dy * dt; s.v.dy += 900 * dt; s.life -= dt
+            return s.life > 0 ? s : nil
+        }
+
+        // water runs off each roof and drips from its edges, the downhill one when the laptop is tilted
+        for (num, l) in ledges where l.water >= 1 {
+            var w = l.water
+            for _ in 0..<min(howMany(w * 3, dt), Int(w)) {
+                let right = abs(g) > 0.05 ? g > 0 : Bool.random()
+                let off = CGFloat.random(in: 1...4)
+                drops.append(Drop(p: CGPoint(x: right ? l.frame.maxX + off : l.frame.minX - off, y: l.frame.minY + .random(in: 0...4)),
+                                  v: CGVector(dx: 0, dy: .random(in: 0...30)), s: .random(in: 650...850)))
+                w -= 1
+            }
+            ledges[num]!.water = w
+        }
+
+        // ponytail: the puddle drains ~6%/s and tops out at 30 pt
+        puddle = min(30, puddle * (1 - 0.06 * dt))
+
+        // rain melts the snow: roofs shed it as dripping water, the ground's runs into the puddle
+        guard rain else { return }
+        let melt = (0.1 + 0.3 * intensity + 0.4 * stormLevel) * dt
+        var melted: CGFloat = 0
+        for c in ground.h.indices where ground.h[c] > 0 { let m = min(ground.h[c], melt); ground.h[c] -= m; melted += m }
+        puddle += melted * colW / bounds.width * 0.5
+        for num in ledges.keys {
+            var roof: CGFloat = 0
+            for c in ledges[num]!.pile.h.indices where ledges[num]!.pile.h[c] > 0 {
+                let m = min(ledges[num]!.pile.h[c], melt); ledges[num]!.pile.h[c] -= m; roof += m
+            }
+            ledges[num]!.water += roof * colW / 8
+            ledges[num]!.stuck.removeAll { _ in CGFloat.random(in: 0..<1) < dt / 4 }
+        }
+    }
+
+    /// Spreads a rate over frames: how many of something happen in this dt.
+    private func howMany(_ perSecond: CGFloat, _ dt: CGFloat) -> Int {
+        let k = perSecond * dt
+        return Int(k) + (CGFloat.random(in: 0..<1) < k.truncatingRemainder(dividingBy: 1) ? 1 : 0)
+    }
+
+    /// Height of the puddle's surface at x: level with real gravity, so tilting sends the water downhill.
+    private func waterLevel(at x: CGFloat) -> CGFloat {
+        guard puddle > 0.05 else { return 0 }
+        var g = tilt.map { invertTilt ? -$0.x : $0.x } ?? 0
+        g = max(-0.9, min(0.9, g))
+        return max(0, puddle + (x - bounds.midX) * g / (1 - g * g).squareRoot())
+    }
+
     /// Puts a flake's worth of snow straight onto window w's roof (lost if the roof is full).
     private func settle(on w: CGRect, x: CGFloat, r: CGFloat) {
         guard let num = ledges.first(where: { $0.value.frame == w })?.key else { return }
@@ -337,8 +463,15 @@ final class SnowView: NSView {
         wind.dy += (gust.dy - wind.dy) * min(1, 1.5 * dt)
 
         // spawn
-        let rate = intensity * intensity * 400 + stormLevel * 2000  // flakes per second
-        var n = Int(rate * dt) + (CGFloat.random(in: 0...1) < (rate * dt).truncatingRemainder(dividingBy: 1) ? 1 : 0)
+        if rain {
+            let n = min(howMany(intensity * intensity * 1200 + stormLevel * 2500, dt), max(0, 6000 - drops.count))
+            for _ in 0..<n {
+                let s = CGFloat.random(in: 650...900)
+                drops.append(Drop(p: CGPoint(x: .random(in: -bounds.width * 0.3...bounds.width * 1.3), y: -20),
+                                  v: CGVector(dx: g * s, dy: gy * s), s: s, behind: CGFloat.random(in: 0..<1) < 0.3))
+            }
+        }
+        var n = rain ? 0 : howMany(intensity * intensity * 400 + stormLevel * 2000, dt)  // flakes per second
         n = min(n, max(0, (stormLevel > 0.05 ? 5500 : 4000) - flakes.count))
         let fromSide = abs(wind.dx) / (abs(wind.dx) + 80)  // strong wind blows snow in from the upwind edge
         for _ in 0..<n {
@@ -412,6 +545,8 @@ final class SnowView: NSView {
                 flakes[i] = f; i += 1
             }
         }
+
+        stepRain(dt: dt, g: g, gy: gy)
 
         // snow plastered on walls creeps down slowly and now and then a bit lets go and drops
         for (num, l) in ledges where !l.stuck.isEmpty {
@@ -506,6 +641,22 @@ final class SnowView: NSView {
         let (gh, heaps) = groundWithHeaps()
         let groundPeak = gh.max() ?? 0
         drawDrift(ctx, gh, x0: 0, base: bounds.maxY, peak: groundPeak)
+        if puddle > 0.05 {
+            let pool = CGMutablePath(), surface = CGMutablePath()
+            pool.move(to: CGPoint(x: 0, y: bounds.maxY))
+            for x in stride(from: 0, through: bounds.maxX, by: 8) {
+                let p = CGPoint(x: x, y: bounds.maxY - waterLevel(at: x))
+                pool.addLine(to: p)
+                if x == 0 { surface.move(to: p) } else { surface.addLine(to: p) }
+            }
+            pool.addLine(to: CGPoint(x: bounds.maxX, y: bounds.maxY)); pool.closeSubpath()
+            ctx.setFillColor(CGColor(red: 0.38, green: 0.55, blue: 0.85, alpha: 0.45)); ctx.addPath(pool); ctx.fillPath()
+            ctx.setStrokeColor(CGColor(red: 0.85, green: 0.93, blue: 1, alpha: 0.8)); ctx.setLineWidth(1.4); ctx.addPath(surface); ctx.strokePath()
+        }
+        // rain falling behind the windows
+        let backRain = CGMutablePath()
+        for d in drops where d.behind { backRain.move(to: d.p); backRain.addLine(to: CGPoint(x: d.p.x - d.v.dx * 0.02, y: d.p.y - d.v.dy * 0.02)) }
+        ctx.setStrokeColor(CGColor(red: 0.8, green: 0.88, blue: 1, alpha: 0.3)); ctx.setLineWidth(1); ctx.addPath(backRain); ctx.strokePath()
         ctx.restoreGState()
         // snowplows and the heaps they push drive in front of everything, windows included
         // (same gradient span as the ground, so a heap blends into the snow it rests on)
@@ -550,6 +701,17 @@ final class SnowView: NSView {
             ctx.setFillColor(NSColor(white: 1, alpha: far ? 0.7 : 1).cgColor)
             ctx.addPath(p); ctx.fillPath()
         }
+
+        // rain: streaks along their motion, rivulets on walls, splashes
+        let streaks = CGMutablePath(), rivulets = CGMutablePath(), spl = CGMutablePath()
+        for d in drops where !d.behind {
+            if d.wall != nil { rivulets.move(to: d.p); rivulets.addLine(to: CGPoint(x: d.p.x, y: d.p.y - 9)) }
+            else { streaks.move(to: d.p); streaks.addLine(to: CGPoint(x: d.p.x - d.v.dx * 0.022, y: d.p.y - d.v.dy * 0.022)) }
+        }
+        for s in splashes { spl.addEllipse(in: CGRect(x: s.p.x - 0.9, y: s.p.y - 0.9, width: 1.8, height: 1.8)) }
+        ctx.setStrokeColor(CGColor(red: 0.82, green: 0.9, blue: 1, alpha: 0.6)); ctx.setLineWidth(1.1); ctx.addPath(streaks); ctx.strokePath()
+        ctx.setStrokeColor(CGColor(red: 0.82, green: 0.9, blue: 1, alpha: 0.75)); ctx.setLineWidth(1.6); ctx.addPath(rivulets); ctx.strokePath()
+        ctx.setFillColor(CGColor(red: 0.85, green: 0.92, blue: 1, alpha: 0.7)); ctx.addPath(spl); ctx.fillPath()
 
         // snow thrown off the blade
         let thrown = CGMutablePath()
@@ -732,6 +894,8 @@ final class App: NSObject, NSApplicationDelegate {
     var intensity: CGFloat = 0.4, invertTilt = false
     var allScreens = UserDefaults.standard.bool(forKey: "allScreens")
     var autoPlow = UserDefaults.standard.object(forKey: "autoPlow") as? Bool ?? true
+    var rain = UserDefaults.standard.bool(forKey: "rain")
+    var snowItem: NSMenuItem!, rainItem: NSMenuItem!, stormItem: NSMenuItem!
 
     /// One transparent click-through overlay per screen (or just the menu-bar one). Screens that keep the
     /// same frame keep their overlay and its snow; only added, moved or resized screens start fresh.
@@ -752,6 +916,7 @@ final class App: NSObject, NSApplicationDelegate {
             v.intensity = intensity
             v.invertTilt = invertTilt
             v.autoPlow = autoPlow
+            v.rain = rain
             w.contentView = v
             w.setFrame(screen.frame, display: false)
             w.orderFrontRegardless()
@@ -765,9 +930,12 @@ final class App: NSObject, NSApplicationDelegate {
         buildOverlays()
 
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "snowflake", accessibilityDescription: "Neve")
         let menu = NSMenu()
-        menu.addItem(withTitle: "Nevicata", action: nil, keyEquivalent: "")
+        snowItem = menu.addItem(withTitle: "Neve", action: #selector(chooseWeather(_:)), keyEquivalent: "")
+        rainItem = menu.addItem(withTitle: "Pioggia", action: #selector(chooseWeather(_:)), keyEquivalent: "")
+        snowItem.target = self; rainItem.target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Intensità", action: nil, keyEquivalent: "")
         let slider = NSSlider(value: Double(intensity), minValue: 0, maxValue: 1, target: self, action: #selector(level(_:)))
         slider.frame = CGRect(x: 18, y: 4, width: 180, height: 22)
         let holder = NSView(frame: CGRect(x: 0, y: 0, width: 216, height: 30))
@@ -775,7 +943,8 @@ final class App: NSObject, NSApplicationDelegate {
         let sliderItem = NSMenuItem(); sliderItem.view = holder
         menu.addItem(sliderItem)
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Tormenta di neve", action: #selector(blizzard), keyEquivalent: "t").target = self
+        stormItem = menu.addItem(withTitle: "Tormenta di neve", action: #selector(blizzard), keyEquivalent: "t")
+        stormItem.target = self
         menu.addItem(withTitle: "Chiama lo spazzaneve", action: #selector(plow), keyEquivalent: "p").target = self
         let auto = menu.addItem(withTitle: "Spazzaneve automatico", action: #selector(toggleAutoPlow(_:)), keyEquivalent: "")
         auto.target = self
@@ -787,6 +956,7 @@ final class App: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Esci", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
+        showWeather()
 
         let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.overlays.forEach { $0.view.step(dt: 1.0 / 30) } }
         RunLoop.main.add(t, forMode: .common)  // keep snowing while the menu is open
@@ -809,6 +979,19 @@ final class App: NSObject, NSApplicationDelegate {
     @objc func invert(_ m: NSMenuItem) {
         invertTilt.toggle(); m.state = invertTilt ? .on : .off
         overlays.forEach { $0.view.invertTilt = invertTilt }
+    }
+    @objc func chooseWeather(_ m: NSMenuItem) {
+        rain = m === rainItem
+        UserDefaults.standard.set(rain, forKey: "rain")
+        overlays.forEach { $0.view.rain = rain }
+        showWeather()
+    }
+    /// Menu ticks, the storm's name and the menu-bar icon follow the chosen weather.
+    func showWeather() {
+        snowItem.state = rain ? .off : .on
+        rainItem.state = rain ? .on : .off
+        stormItem.title = rain ? "Temporale" : "Tormenta di neve"
+        item.button?.image = NSImage(systemSymbolName: rain ? "cloud.rain" : "snowflake", accessibilityDescription: rain ? "Pioggia" : "Neve")
     }
     @objc func toggleAutoPlow(_ m: NSMenuItem) {
         autoPlow.toggle(); m.state = autoPlow ? .on : .off

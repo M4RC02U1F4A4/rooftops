@@ -35,6 +35,10 @@ One Swift file, no dependencies, no Xcode project.
   menu sends a convoy that clears the road: one truck per ~32 pt layer of snow, up to 10, each scraping one
   layer and riding on the packed snow it leaves. Trucks tilt on slopes and push a heap that rests on the snow
   ahead like real snow; what doesn't fit is thrown over the blade.
+- **Rain mode**: switch from snow to rain in the menu. Drops fall as fast streaks and splash instead of
+  piling up; water runs off the window roofs and drips from their corners, trickles down walls it hits, and
+  collects in a puddle at the bottom that stays level with real gravity, so tilting the laptop sends it to the
+  lower side. Rain melts whatever snow is there. In rain mode the blizzard becomes a thunderstorm.
 - **Multiple displays**: snow on the main screen only, or on all screens. External monitors don't tilt.
 
 ## Requirements
@@ -51,7 +55,7 @@ One Swift file, no dependencies, no Xcode project.
 open Snow.app
 ```
 
-The app has no Dock icon: look for the snowflake in the menu bar.
+The app has no Dock icon: look for the snowflake (or the rain cloud, in rain mode) in the menu bar.
 
 To check the snow physics (piles, avalanches, slab slides):
 
@@ -65,8 +69,9 @@ The menu is in Italian:
 
 | Item                   | What it does                                                         |
 |------------------------|----------------------------------------------------------------------|
-| *Nevicata* slider      | Snowfall intensity; all the way left stops it                        |
-| Tormenta di neve (⌘T)  | Starts a 15 s blizzard with random gusts                             |
+| Neve / Pioggia         | Snow or rain (remembered)                                            |
+| *Intensità* slider     | How hard it snows or rains; all the way left stops it                |
+| Tormenta di neve / Temporale (⌘T) | Starts a 15 s blizzard (or downpour) with random gusts    |
 | Chiama lo spazzaneve (⌘P) | Sends the snowplow convoy now                                    |
 | Spazzaneve automatico  | Snowplows set off on their own to keep the ground snow low (remembered, on by default) |
 | Tutti gli schermi      | Snow on every display instead of the main one only (remembered)      |
