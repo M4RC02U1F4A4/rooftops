@@ -119,6 +119,8 @@ The values that define the feel of the snow are marked in the source with `ponyt
 
 - Tilt was tuned by feel; if the snow slides the wrong way, use *Inverti inclinazione*.
 - A maximized window acts as a roof for the whole screen, so almost no snow is visible behind it.
+- The weather is hidden while Mission Control is open, Space previews included: macOS can't show it in the
+  previews without also drawing it over Mission Control.
 - Snow is drawn on the CPU: around 10–15% of a core with normal snowfall on one screen, more during a
   blizzard or with several displays.
 - The snowplows (and the heaps they push) drive in front of every window; the ground drifts are drawn above the Dock.
