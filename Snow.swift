@@ -1106,7 +1106,8 @@ final class App: NSObject, NSApplicationDelegate {
             w.hasShadow = false
             w.ignoresMouseEvents = true
             w.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) + 1)  // above the Dock
-            w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+            // on every Space, but hidden while Mission Control is open (.stationary drew over it)
+            w.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle, .fullScreenAuxiliary]
             let v = SnowView(frame: CGRect(origin: .zero, size: screen.frame.size), origin: CGDisplayBounds(id).origin,
                              tilt: CGDisplayIsBuiltin(id) != 0 ? tilt : nil)
             v.intensity = intensity
