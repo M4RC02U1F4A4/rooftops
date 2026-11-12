@@ -917,9 +917,15 @@ final class SnowView: NSView {
         CGColor(red: 0.78, green: 0.85, blue: 0.95, alpha: 1)] as CFArray, locations: [0, 0.35, 1])!
 
     /// Draws a heightmap as a soft drift: smoothed outline, white top fading to blue shade at the base.
-    /// Restricts drawing to outside these windows (each clip intersects, so overlaps are handled).
+    /// Restricts drawing to outside these windows (each clip intersects, so overlaps are handled),
+    /// following their rounded corners so nothing behind leaves a notch of wallpaper there.
     private func clipOut(_ ctx: CGContext, _ windows: ArraySlice<CGRect>) {
-        for w in windows { ctx.addRect(bounds); ctx.addRect(w); ctx.clip(using: .evenOdd) }
+        // ponytail: macOS doesn't expose the window corner radius; 12 pt matches standard windows
+        for w in windows {
+            ctx.addRect(bounds)
+            ctx.addPath(CGPath(roundedRect: w, cornerWidth: 12, cornerHeight: 12, transform: nil))
+            ctx.clip(using: .evenOdd)
+        }
     }
 
     /// `peak` fixes the gradient's span, so separately drawn pieces of the same snow match.
